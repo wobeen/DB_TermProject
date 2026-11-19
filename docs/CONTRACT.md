@@ -15,6 +15,7 @@
 | 언어 | Python ≥ 3.11. 런타임은 표준 라이브러리만 쓴다. 개발용은 `pytest`, 벤치 그래프는 `matplotlib` |
 | 인터페이스 | CLI (`python -m scouting`), 한국어 메뉴 |
 | 추천 로직 | **SQL로 구현한다.** ML 라이브러리(numpy, pandas, sklearn 등)는 금지. Python은 오케스트레이션과 seed 기반 셔플만 맡는다 |
+| 보고서 | 영어 본문, 6페이지. CLI 화면 출력은 한국어 그대로 |
 | 포지션 범위 | GK, DF, MF, FW 전체. 포지션군별 지표 가중치는 `metric_weight` 테이블로 정의 |
 
 ## 1. 데이터 검증 결과 (coordinator 실측)
@@ -34,10 +35,10 @@
 | 출전 기록 커버리지 | 1부 리그 14개(GB1, ES1, IT1, L1, FR1, PO1, NL1, BE1, TR1, RU1, UKR1, SC1, GR1, DK1)가 2012~2025 시즌 100% 가깝게 수집됨. 2024년부터 추가된 리그(MLS, K리그 등)는 출전 기록이 0건이라 제외한다 |
 | 라인업(선발 여부, 경기별 포지션) | 2013~2025 시즌은 약 99%. **2012 시즌은 0%** → 선발 여부는 대체 규칙(§3.2)으로 판정 |
 | 득점 이벤트 정합성 | 구단별 득점 이벤트 합이 경기 스코어와 일치하는 비율 99.74% (2013~2023 리그). `game_events.club_id`는 득점이 인정된 구단이다(자책골 포함) |
-| 출전 구간 모델 검증 | §3.2 규칙(선발/교체 인/교체 아웃/퇴장)으로 계산한 출전 시간이 `minutes_played`와 ±5분 이내인 비율 **99.996%** (2018 시즌 리그 출전 10.9만 건) |
+| 출전 구간 모델 검증 | §3.2 규칙(선발/교체 인/교체 아웃/퇴장)으로 계산한 출전 시간이 `minutes_played`와 ±5분 이내인 비율. 2018 시즌 리그 출전 기준으로 탐색 단계에서는 99.996%(교체 인 시각을 알 수 없는 2,855건 제외), 파이프라인 최종 구현에서는 **99.989%**(109,855 / 109,867, 제외 없음)이다. 보고서는 파이프라인 수치를 쓴다 |
 | 포지션 분포 | Attack 13,502 / Defender 15,961 / Goalkeeper 5,828 / Midfield 14,272 / Missing 586 |
 | 백테스트 가능성 | 2018-07 이전 출전 기록이 있는 2018-07 기준 21세 이하 선수 1,005명 중 이후 시장가치 €50M 이상 도달 47명(FW 22, DF 14, MF 10, GK 1) |
-| 참조 무결성 | 경기·출전·이적이 참조하는 구단 중 2,481개가 clubs.csv에 없음 → stub 구단 생성. 라인업 315,555행은 players.csv에 없는 선수 → 제외. 라인업 (game_id, player_id) 중복 12건 → 선발 행 우선으로 1건 유지 |
+| 참조 무결성 | 경기 홈/원정 구단 중 2,481개가 clubs.csv에 없다. 출전·이벤트·라인업·이적·시장가치 참조까지 합치면 stub 구단은 **17,923개**다(파이프라인 실측). 라인업 315,555행은 players.csv에 없는 선수라 제외한다. 라인업 (game_id, player_id) 중복 12건은 선발 행을 우선해 1건만 남긴다. 키 140cm 미만 13건은 NULL로 바꾼다 |
 
 **포지션별 지표**: 수비수와 골키퍼는 이벤트 기반 출전 구간으로 **출전 중 실점/90, 무실점 선발 비율, 출전 중 득실차/90**을 계산할 수 있다(검증 완료). 태클, 인터셉트, 패스, 선방, xG는 데이터에 **없다**. 이 한계는 보고서 Limitation에 명시한다.
 
@@ -121,17 +122,17 @@
   - as_of 기준 나이(`v_player_age_asof`) ≤ `max_age`
   - 해당 스냅샷·정의의 라벨이 `is_world_class = 0`
 - **method별 점수**
-  - `random`: 후보를 player_id 순으로 정렬한 뒤 `random.Random(seed).shuffle`. score = 0.
+  - `random`: 후보를 player_id 순으로 정렬한 뒤 `random.Random(seed).shuffle`. 셔플 순서가 곧 순위다. score = 0.
   - `market_value`: `v_latest_value_asof` 내림차순. 값이 없는 후보는 score 0.
   - `similarity`
     - 후보 벡터 = (snapshot, 선수, L)의 `player_season_z` 중 `metric_weight(P)`에 있는 지표.
     - 비교 풀 = 같은 스냅샷, `pos_group = P`, 후보의 시즌 L 나이와 같은 나이, `season ≤ L − pool_lag_seasons`, 후보 본인 제외.
-    - 거리 `d = sqrt(Σ w·(z_c − z_p)² / Σ w)`. 공유 지표의 가중치 합이 후보 전체 가중치의 60% 미만이면 비교하지 않는다.
+    - 거리 `d = sqrt(Σ w·(z_c − z_p)² / Σ w)`. 공유 지표의 가중치 합이 **후보가 가진 지표**의 가중치 합의 60% 미만이면 비교하지 않는다. 정렬과 k명 선정은 SQL에서 d²로 하고, sqrt는 Python에서 취한다(SQLite 빌드에 따라 수학 함수가 없을 수 있음). 이웃이 한 명도 없는 후보는 similarity 순위에서 제외한다.
     - 거리 오름차순(동률이면 player_id 오름차순)으로 k명을 뽑는다.
     - `score = Σ is_wc·1/(d+0.1) / Σ 1/(d+0.1)`. is_wc는 해당 스냅샷 라벨이다.
     - `wc_neighbors` = k명 중 월클 수.
     - **거리 계산과 이웃 선정은 SQL 하나**(CTE + GROUP BY + 윈도 함수)로 한다.
-  - `hybrid`: `0.5·PERCENT_RANK(similarity score) + 0.5·PERCENT_RANK(market value)`. 시장가치가 없으면 해당 항을 0으로 둔다.
+  - `hybrid`: `0.5·PERCENT_RANK(similarity score) + 0.5·PERCENT_RANK(market value)`. 시장가치나 이웃이 없으면 해당 항을 0으로 둔다.
 - **정렬과 저장**: score 내림차순, player_id 오름차순으로 상위 `top_n`을 `recommendation_item`에 저장한다. similarity와 hybrid는 각 항목의 이웃 k명을 `recommendation_evidence`에 저장한다. run + item + evidence는 **하나의 트랜잭션**으로 쓴다.
 - **백테스트**: 정답 = outcome 스냅샷(기본 `current`)에서 같은 정의의 `is_world_class = 1`.
   - `hits@k` = 순위 k 이내 정답 수
@@ -182,7 +183,7 @@ player_card(conn, player_id) -> dict | None
 season_history(conn, player_id) -> list[dict]             # player_season + metric 값(wide)
 valuation_history(conn, player_id) -> list[dict]
 cohort_percentiles(conn, snapshot_id, player_id, season) -> list[dict]   # metric_code, name_ko, value, percentile(0~100), cohort_n
-similar_players(conn, snapshot_id, player_id, season, k=10) -> list[dict]
+similar_players(conn, snapshot_id, player_id, season, k=10, def_id=None) -> list[dict]   # def_id 지정 시 이웃의 월클 여부 표시
 # services/watchlist.py / services/notes.py  — 모든 수정·삭제는 WHERE ... AND user_id = ? 로 소유권 강제
 add_to_watchlist / list_watchlist / update_watch_memo / remove_from_watchlist
 create_note / list_notes_for_player / list_my_notes / update_note / delete_note
@@ -190,12 +191,24 @@ create_note / list_notes_for_player / list_my_notes / update_note / delete_note
 candidate_ids(conn, *, snapshot_id, def_id, pos_group, max_age, min_minutes) -> list[int]
 run_recommendation(conn, *, user_id, snapshot_id, def_id, pos_group, method, max_age=21, min_minutes=900,
                    k=25, pool_lag_seasons=3, top_n=20, seed=42) -> int   # run_id
+breakout_prospects(conn, *, snapshot_id, def_id, pos_group, metric_code="minutes_share", max_age=21,
+                   mode="all") -> list[dict]
+# 시즌 L의 후보 중 같은 나이 시점 월클 선수들의 metric 값과 비교한다.
+#   mode="all":  값 > ALL(월클 값)   — 그 나이의 모든 월클보다 높음
+#   mode="some": 값 > SOME(월클 값)  — 적어도 한 명의 월클보다 높음
+# SQLite는 ALL/SOME/ANY를 지원하지 않는다. x > ALL(S)는 NOT EXISTS(S 중 s >= x), x > SOME(S)는 EXISTS(S 중 s < x)로
+# 재작성하고, 코드 주석에 원래 ALL/SOME 형태를 함께 적는다(수업 P3 집합 비교, 보고서 소재).
+# S가 비면 ALL은 참이 되므로, 비교 대상 월클이 0명이면 결과를 비우고 이유를 알린다.
 # services/backtest.py
 evaluate_run(conn, run_id, *, outcome_snapshot_id, k_values=(20, 50)) -> list[dict]
+# evaluate_run: outcome 스냅샷의 as_of가 run 스냅샷보다 늦지 않으면 ValueError.
+# 권한 모델: actor 인자가 있는 함수만 서비스 계층에서 권한을 검사한다(actor는 필수, None 불가).
+# actor가 없는 조회·계산 함수(get_run, run_items, evaluate_run 등)는 신뢰된 호출자(CLI, bench)용 내부 API다.
+# 화면 노출 범위(본인 run만, 백테스트는 admin 메뉴)는 CLI가 강제한다.
 # services/admin.py
 data_status(conn) -> dict
-create_definition / update_definition / delete_definition   # 수정 시 pipeline.derive.build_labels 호출
-rebuild_snapshot(conn, snapshot_id) -> dict                 # pipeline.derive.build_snapshot 위임
+create_definition / update_definition / delete_definition   # (conn, actor: User, ...) admin만. 수정 시 pipeline.derive.build_labels 호출
+rebuild_snapshot(conn, snapshot_id, *, actor: User) -> dict  # admin만. pipeline.derive.build_snapshot 위임
 ```
 비밀번호 해시: `hashlib.pbkdf2_hmac('sha256', ..., iterations=200_000)`, 형식은 `pbkdf2_sha256$<iter>$<salt_hex>$<hash_hex>`.
 
@@ -211,15 +224,17 @@ rebuild_snapshot(conn, snapshot_id) -> dict                 # pipeline.derive.bu
   5 내 추천 기록 / 결과 상세
   6 워치리스트 (조회·추가·메모 수정·삭제)
   7 스카우팅 노트 (작성·조회·수정·삭제)
+  8 기준 돌파 유망주 (같은 나이 월클과 > ALL / > SOME 비교)
   0 로그아웃
 관리자(스카우트 메뉴 + ):
-  8 데이터 현황 (테이블 행 수, 스냅샷 목록·빌드 시각)
-  9 스냅샷 재계산
-  10 월클 정의 관리 (추가·수정·삭제)
-  11 백테스트 실행 (run 선택 → precision/recall)
-  12 사용자 역할 변경
+  9 데이터 현황 (테이블 행 수, 스냅샷 목록·빌드 시각)
+  10 스냅샷 재계산
+  11 월클 정의 관리 (추가·수정·삭제)
+  12 백테스트 실행 (run 선택 → precision/recall)
+  13 사용자 역할 변경
 ```
 - 관리자 생성: `python -m scouting create-admin <username> --password <pw>`
+- `--db` 경로 오류, 디렉터리, 손상 파일, 잠긴 DB도 traceback 없이 한국어 메시지와 종료 코드 1로 끝낸다.
 - 잘못된 입력(숫자 아님, 없는 ID, 범위 밖)은 메시지를 출력하고 다시 묻는다. `sqlite3.IntegrityError`는 사용자용 한국어 메시지로 바꾼다. 어떤 입력에도 traceback을 내고 종료하지 않는다(R-48).
 - 표 출력은 고정폭 정렬. 예시 보고서 형식(P4 s9)을 따른다.
 
