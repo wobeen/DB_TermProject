@@ -6,7 +6,7 @@ Final 6-page term-project report (English).
 |---|---|
 | `report.md` | Source text (subset of Markdown: headings, paragraphs, bullets, pipe tables, code fences, `![w=<fraction> caption](path)`) |
 | `build.py` | `report.md` -> `report.docx` (python-docx) -> `report.pdf` (docx2pdf, needs Microsoft Word); prints the PDF page count |
-| `make_figures.py` | Draws `figures/er.png` (ER diagram) and `figures/perf.png` (reads `bench/results/*.csv`) |
+| `make_figures.py` | Draws `figures/er.png`, `figures/perf.png` (reads `bench/results/*.csv`) and composes `figures/gui.png` from the four `gui_*.png` screenshots (PIL) |
 | `console/` | Raw CLI transcripts shown in the report (`drive.py` feeds scripted input to `python -m scouting`; run on a copy of `data/scouting.sqlite` with an admin account `demo`) |
 
 ## Build

@@ -21,7 +21,7 @@ Clubs spend large sums on youth prospects, yet prospect evaluation still rests h
 **Contributions.**
 
 - **Analysis.** We validated what the public data supports (§2): an on-pitch interval model reproduces recorded minutes within ±5 minutes for 99.989% of appearances, and we state which scouting metrics cannot be built (no tackles, passes or xG).
-- **Design and implementation.** A three-layer SQLite design (raw, derived, service) whose snapshot-keyed derived tables prevent look-ahead leakage by construction, with the k-NN recommender, set-comparison queries and a role-based CLI implemented in SQL and Python.
+- **Design and implementation.** A three-layer SQLite design (raw, derived, service) whose snapshot-keyed derived tables prevent look-ahead leakage by construction, with the k-NN recommender and set-comparison queries implemented in SQL, a role-based CLI and a Tkinter GUI over the same service layer.
 - **Evaluation.** A controlled comparison of raw (B1, B2) and derived (P) paths with EXPLAIN and cProfile evidence, refresh and storage cost, and a leakage-free backtest against random and market-value baselines, including the negative result.
 
 ## 2. Background and Motivation
@@ -36,9 +36,9 @@ Clubs spend large sums on youth prospects, yet prospect evaluation still rests h
 
 ### 3.1 Architecture
 
-The database has three layers. The **core layer** (9 tables, e.g. `player`, `game`, `appearance`, `game_event`, `player_valuation`) holds normalized raw data with CHECK, FK and STRICT-type constraints. The **derived layer** holds `player_season` (one row per player and season: age, minutes, on-pitch goals for/against, clean sheets, league strength), `player_season_metric` (11 metrics) and, per *snapshot*, `cohort_baseline`, `player_season_z` and `world_class_label`. The **service layer** holds users, watchlists, notes and recommendation runs with their evidence. A snapshot (`snapshot.as_of_date`) is a cut-off date: views such as `v_player_season_asof` expose only seasons ending before it, and all z-scores and labels carry `snapshot_id` in their primary key. A backtest at 2018-07-01 therefore cannot read 2019 data, which is enforced by the schema rather than by developer discipline. Refresh is explicit: `build_player_season` recomputes seasons, `build_snapshot` rebuilds one snapshot in a single transaction. The code runs in the three steps `scripts/setup_db.py` (load, derive, build two snapshots), `python -m scouting create-admin`, and `python -m scouting`; the benchmark is `python bench/run_all.py`.
+The database has three layers. The **core layer** (9 tables, e.g. `player`, `game`, `appearance`, `game_event`, `player_valuation`) holds normalized raw data with CHECK, FK and STRICT-type constraints. The **derived layer** holds `player_season` (one row per player and season: age, minutes, on-pitch goals for/against, clean sheets, league strength), `player_season_metric` (11 metrics) and, per *snapshot*, `cohort_baseline`, `player_season_z` and `world_class_label`. The **service layer** holds users, watchlists, notes and recommendation runs with their evidence. On top, a Python **service package** (`scouting/services`) exposes every feature as a function, and two front ends call it: a Korean-language CLI (`python -m scouting`) and a Tkinter + matplotlib GUI (`python -m scouting.gui`). Both contain no business logic, and the GUI contains no SQL at all. A snapshot (`snapshot.as_of_date`) is a cut-off date: views such as `v_player_season_asof` expose only seasons ending before it, and all z-scores and labels carry `snapshot_id` in their primary key. A backtest at 2018-07-01 therefore cannot read 2019 data, which is enforced by the schema rather than by developer discipline. Refresh is explicit: `build_player_season` recomputes seasons, `build_snapshot` rebuilds one snapshot in a single transaction. The code runs in the three steps `scripts/setup_db.py` (load, derive, build two snapshots), `python -m scouting create-admin`, and `python -m scouting`; the benchmark is `python bench/run_all.py`.
 
-![w=1.0 Figure 1. ER diagram (PK/FK marked; STRICT tables, NOT NULL/CHECK in `db/schema.sql`). Layers: core, derived, service. 1:N: club-player, player-appearance; N:M: user-player via `watchlist`.](figures/er.png)
+![w=0.92 Figure 1. ER diagram (PK/FK marked; STRICT tables, NOT NULL/CHECK in `db/schema.sql`). Layers: core, derived, service. 1:N: club-player, player-appearance; N:M: user-player via `watchlist`.](figures/er.png)
 
 ### 3.2 Key tables and the on-pitch interval model
 
@@ -125,9 +125,9 @@ A recommendation run, its items and its evidence are written inside one `with tr
 
 If `S` is empty, `x > ALL(S)` is vacuously true for every candidate, which would flag everyone. The query therefore adds `WHERE EXISTS (SELECT 1 FROM s WHERE s.age = cv.age)`, so ages with no world-class reference return nothing, and the CLI explains why. (`x > SOME(S)` is false on an empty set, so only ALL needs the guard.)
 
-### 3.6 CLI functions and execution results
+### 3.6 CLI and GUI functions and execution results
 
-`python -m scouting` has a scout menu (search, profile, similar players, recommendation, history, watchlist, notes, breakout) and an admin menu (data status, snapshot rebuild, definition management, backtest, roles), with Korean console text. Menu 3 calls `players.similar_players`, which runs the k-NN above (output of `report/console/menu3_similar.txt`, snapshot `current`, definition 1):
+`python -m scouting` (code in `scouting/cli/main.py`) has a scout menu (search, profile, similar players, recommendation, history, watchlist, notes, breakout) and an admin menu (data status, snapshot rebuild, definition management, backtest, roles), with Korean console text; the GUI offers the same functions as tabs (Fig. 2). Menu 3 calls `players.similar_players`, which runs the k-NN above (output of `report/console/menu3_similar.txt`, snapshot `current`, definition 1):
 
 ```
 시즌 2025 기준 유사 선수 Top-5
@@ -137,8 +137,7 @@ If `S` is empty, `x > ALL(S)` is vacuously true for every candidate, which would
    3 |  342229 | Kylian Mbappé         | 2016 |   17 | AS Monaco         | 1.174 | O
 ```
 
-Menu 8 with `minutes_share`, FW, snapshot `current` returned no row for ALL (no candidate exceeds every world-class value of his age; e.g. 89 comparison values at age 20), and 84 for SOME (top row: `Jorg Schreuders, age 20, 0.925, 89 comparison players, max 0.934, min 0.003`). Menu 4 (DF, `similarity`, default parameters, 107 candidates, 0.7 s) prints the ranking with the world-class neighbour count:
-
+Menu 8 with `minutes_share`, FW, snapshot `current` returned no row for ALL (no candidate exceeds every world-class value of his age; e.g. 89 comparison values at age 20), and 84 for SOME. 
 ```
 FW / minutes_share / SOME 비교: 84명
 순위 |      ID | 이름            | 나이 |    값 | 비교 월클 수 | 월클 최댓값 | 월클 최솟값
@@ -146,11 +145,11 @@ FW / minutes_share / SOME 비교: 84명
    2 |  748804 | Mika Godts      |   20 | 0.878 |           89 |       0.934 |       0.003
 ```
 
-```
-순위 |      ID | 이름         | 구단          |  점수 | 월클이웃 | 시장가치(as_of)
-   1 |  924117 | Finn Jeltsch | VfB Stuttgart | 0.388 |        9 | €35.0M
-   2 | 1121298 | Juma Bah     | OGC Nice      | 0.322 |        9 | €10.0M
-```
+Menu 4 (DF, `similarity`, default parameters, 107 candidates) took 0.7 s and ranked Finn Jeltsch (VfB Stuttgart, score 0.388, 9 world-class neighbours) first (`report/console/menu4_recommend.txt`); the GUI recommendation tab shows the same function in Fig. 2.
+
+![w=1.0 Figure 2. The Tkinter GUI (`python -m scouting.gui`) over the same service layer as the CLI. Left: player profile (season table, growth and market-value charts, cohort percentiles). Right: recommendation tab (FW, similarity, top 20) and, below it, the top of the similar-players tab. Screenshots from the real database.](figures/gui.png)
+
+The GUI calls the same service functions (`players.similar_players`, `recommend.run_recommendation`, `breakout_prospects`) and only formats results. Long jobs (recommendation, k-NN, profile loading) run on a worker thread in `scouting/gui/common.py:BackgroundJobs`, which opens its **own SQLite connection** through `scouting.db.connect` and closes it afterwards, because a sqlite3 connection must not be shared across threads. Results return to the Tk thread through a queue polled with `after(100, ...)`, so the window stays responsive, and a locked database offers a retry dialog. 
 
 ### 3.7 Disadvantages, stability and robustness
 
@@ -160,7 +159,7 @@ FW / minutes_share / SOME 비교: 84명
 
 **Setup.** Windows 11 (10.0.26300), Intel64 Family 6 Model 189, 8 logical CPUs, Python 3.14.0, SQLite 3.50.4 (`env.json`). Sample: 20 players (seed 42, 5 per position group), season 2025, aged 16-21, at least 900 league minutes. Three configurations: **B1** = recompute from raw tables with all `ix_` indexes dropped; **B2** = raw path with indexes; **P** = derived tables plus indexes. Queries: Q1 season history, Q2 cohort percentile, Q3 k-NN (k=10). The raw path (`bench/raw_queries.py`) evaluates the §3.2 formulas in one `WITH` query, and its results equal P (metric error <= 1e-9, same neighbours and labels): all eight verification checks PASS. *Deviation from the planned protocol:* raw-path Q2/Q3 used 1 warm-up and 5 runs per player instead of 3 + 30 (Q1/B1: 1 + 10) because one run takes seconds; P and Q1/B2 used 3 + 30. Q3/B1 with definition 2 was verified on 3 players only (about 50 s per query).
 
-![w=1.0 Figure 2. (a) Median query latency, log scale (`query_summary.csv`). (b) Backtest precision@20, mean over DF/MF/FW cells (`backtest.csv`).](figures/perf.png)
+![w=1.0 Figure 3. (a) Median query latency, log scale (`query_summary.csv`). (b) Backtest precision@20, mean over DF/MF/FW cells (`backtest.csv`).](figures/perf.png)
 
 **Latency.** Median (p95) in ms, with speedup over B1:
 

@@ -117,5 +117,21 @@ def perf():
     fig.savefig(OUT / "perf.png", dpi=300); plt.close(fig)
 
 
+def gui():
+    """Compose the Tkinter GUI figure: profile tab (left), recommend + similar tabs (right, cropped)."""
+    from PIL import Image
+    prof = Image.open(OUT / "gui_profile.png").convert("RGB")
+    rec = Image.open(OUT / "gui_recommend.png").convert("RGB").crop((0, 0, 2560, 1060))
+    sim = Image.open(OUT / "gui_similar.png").convert("RGB").crop((0, 0, 2560, 575))
+    right = Image.new("RGB", (2560, rec.height + sim.height), "white")
+    right.paste(rec, (0, 0)); right.paste(sim, (0, rec.height))
+    right = right.resize((2560, 1600), Image.LANCZOS)
+    gap = 40
+    out = Image.new("RGB", (2560 * 2 + gap, 1600), "white")
+    out.paste(prof, (0, 0)); out.paste(right, (2560 + gap, 0))
+    out = out.resize((out.width // 2, out.height // 2), Image.LANCZOS)
+    out.save(OUT / "gui.png", optimize=True)
+
+
 if __name__ == "__main__":
-    OUT.mkdir(exist_ok=True); er(); perf(); print("ok")
+    OUT.mkdir(exist_ok=True); er(); perf(); gui(); print("ok")

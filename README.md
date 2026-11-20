@@ -172,6 +172,6 @@ python report/build.py                                 # report.md → report.do
 | `db/` | `schema.sql`, `views.sql`, `indexes.sql`, `reference_data.sql` |
 | `pipeline/`, `scripts/` | 다운로드, 적재, 파생 계산, `setup_db.py` |
 | `scouting/` | DB 연결(`db.py`), 서비스 계층(`services/`), CLI(`cli/`), GUI(`gui/`) |
-| `tests/` | `pipeline/`, `app/` |
+| `tests/` | `pipeline/`, `app/`, `gui/` |
 | `bench/` | 성능·백테스트 실험과 결과 |
 | `report/` | 보고서 원문, 빌드 스크립트, 그림, CLI 출력 기록 |
