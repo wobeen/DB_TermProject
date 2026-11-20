@@ -118,17 +118,13 @@ def perf():
 
 
 def gui():
-    """Compose the Tkinter GUI figure: profile tab (left), recommend + similar tabs (right, cropped)."""
+    """Compose the Tkinter career-explorer figure: search screen (left) + career screen (right)."""
     from PIL import Image
-    prof = Image.open(OUT / "gui_profile.png").convert("RGB")
-    rec = Image.open(OUT / "gui_recommend.png").convert("RGB").crop((0, 0, 2560, 1060))
-    sim = Image.open(OUT / "gui_similar.png").convert("RGB").crop((0, 0, 2560, 575))
-    right = Image.new("RGB", (2560, rec.height + sim.height), "white")
-    right.paste(rec, (0, 0)); right.paste(sim, (0, rec.height))
-    right = right.resize((2560, 1600), Image.LANCZOS)
+    a = Image.open(OUT / "gui_search.png").convert("RGB")
+    b = Image.open(OUT / "gui_career.png").convert("RGB")
     gap = 40
-    out = Image.new("RGB", (2560 * 2 + gap, 1600), "white")
-    out.paste(prof, (0, 0)); out.paste(right, (2560 + gap, 0))
+    out = Image.new("RGB", (a.width + b.width + gap, max(a.height, b.height)), "white")
+    out.paste(a, (0, 0)); out.paste(b, (a.width + gap, 0))
     out = out.resize((out.width // 2, out.height // 2), Image.LANCZOS)
     out.save(OUT / "gui.png", optimize=True)
 
