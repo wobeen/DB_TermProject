@@ -18,7 +18,7 @@ def clear_tree(tree: ttk.Treeview) -> None:
     tree.delete(*tree.get_children())
 
 
-def make_tree(parent, columns, *, height=12, horizontal=False) -> ttk.Treeview:
+def make_tree(parent, columns, *, height=12, horizontal=False, left=()) -> ttk.Treeview:
     frame = ttk.Frame(parent)
     frame.pack(fill="both", expand=True, padx=8, pady=6)
     keys = [column[0] for column in columns]
@@ -27,8 +27,8 @@ def make_tree(parent, columns, *, height=12, horizontal=False) -> ttk.Treeview:
         width_scale = float(parent.winfo_fpixels("1i")) / 96.0
     except Exception:
         width_scale = 1.0
-    text_columns = {"name", "club", "club_name", "memo", "body", "def", "snap", "method", "pos", "created"}
-    centered_columns = {"wc"}
+    text_columns = set(left)
+    centered_columns = set()
     for key, label, width, *stretch in columns:
         anchor = "w" if key in text_columns else ("center" if key in centered_columns else "e")
         tree.heading(key, text=label)

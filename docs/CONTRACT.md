@@ -13,7 +13,7 @@
 | 종목 / 데이터 | 축구. Transfermarkt 데이터셋(`dcaribou/transfermarkt-datasets`, CC0), 2026-07-06 스냅샷 |
 | DBMS | SQLite ≥ 3.37 (STRICT 테이블). 단일 파일 `data/scouting.sqlite` |
 | 언어 | Python ≥ 3.11. 런타임은 표준 라이브러리만 쓴다. 개발용은 `pytest`, 벤치 그래프는 `matplotlib` |
-| 인터페이스 | CLI (`python -m scouting`, 한국어 메뉴) + GUI (`python -m scouting.gui`, Tkinter + matplotlib, 관리자 기능 제외). 두 화면 모두 `scouting/services`만 호출한다 |
+| 인터페이스 | CLI (`python -m scouting`, 한국어 메뉴, 스카우팅 전체 기능) + GUI (`python -m scouting.gui`, Tkinter + matplotlib, **읽기 전용 선수 커리어 탐색기**: 검색·이적 이력·시즌별 기록·시장가치. 월클/추천 기능 없음). 두 화면 모두 `scouting/services`만 호출한다 |
 | 추천 로직 | **SQL로 구현한다.** ML 라이브러리(numpy, pandas, sklearn 등)는 금지. Python은 오케스트레이션과 seed 기반 셔플만 맡는다 |
 | 보고서 | 영어 본문, 6페이지. CLI 화면 출력은 한국어 그대로 |
 | 포지션 범위 | GK, DF, MF, FW 전체. 포지션군별 지표 가중치는 `metric_weight` 테이블로 정의 |

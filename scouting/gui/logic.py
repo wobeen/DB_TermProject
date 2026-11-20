@@ -1,40 +1,26 @@
-"""Pure presentation and validation helpers used by the Tk views."""
+"""Pure presentation and validation helpers used by the Tk career explorer."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Iterable, Mapping
 
-POS_GROUPS = ("GK", "DF", "MF", "FW")
+# 화면 라벨 -> DB pos_group (빈 값 = 전체)
+POS_LABELS = {"": "", "골키퍼": "GK", "수비수": "DF", "미드필더": "MF", "공격수": "FW"}
+POS_KO = {"GK": "골키퍼", "DF": "수비수", "MF": "미드필더", "FW": "공격수"}
 
-BASE_SEASON_COLUMNS = (
-    ("season", "시즌"), ("age", "나이"), ("club_name", "구단"),
-    ("league_apps", "경기"), ("league_starts", "선발"), ("league_minutes", "분"),
-    ("m_minutes_share", "출전비율"),
-)
-POSITION_COLUMNS = {
-    "GK": BASE_SEASON_COLUMNS + (("m_onpitch_ga_per90", "실점/90"), ("m_clean_sheet_rate", "무실점률")),
-    "DF": BASE_SEASON_COLUMNS + (("m_onpitch_ga_per90", "실점/90"), ("m_clean_sheet_rate", "무실점률"),
-                                  ("m_onpitch_gd_per90", "득실차/90")),
-    "MF": BASE_SEASON_COLUMNS + (("m_ga_per90", "공격P/90"), ("m_assists_per90", "도움/90"),
-                                  ("m_onpitch_gd_per90", "득실차/90")),
-    "FW": BASE_SEASON_COLUMNS + (("m_goals_per90", "득점/90"), ("m_ga_per90", "공격P/90"),
-                                  ("m_onpitch_gd_per90", "득실차/90")),
-}
-GROWTH_METRICS = {
-    "GK": ("m_onpitch_ga_per90", "m_clean_sheet_rate", "m_minutes_share"),
-    "DF": ("m_onpitch_ga_per90", "m_clean_sheet_rate", "m_onpitch_gd_per90", "m_minutes_share"),
-    "MF": ("m_ga_per90", "m_assists_per90", "m_onpitch_gd_per90", "m_minutes_share"),
-    "FW": ("m_goals_per90", "m_ga_per90", "m_onpitch_gd_per90", "m_minutes_share"),
+TITLE = "축구 선수 커리어 탐색기"
+DESCRIPTION = "Transfermarkt 공개 데이터로 선수의 이적·시즌 기록·시장가치 커리어를 찾아봅니다."
+
+_WORD_FIX = {
+    "uefa": "UEFA", "fa": "FA", "dfb": "DFB", "knvb": "KNVB", "laliga": "LaLiga", "j1": "J1",
+    "hnl": "HNL", "supersport": "SuperSport", "liga-mx": "Liga MX", "mls": "MLS",
 }
 
 
 def parse_int(value: object, label: str, lo: int, hi: int, *, blank: int | None = None) -> int | None:
     text = str(value or "").strip().replace(",", "")
-    if not text and blank is not None:
+    if not text:
         return blank
-    if not text and blank is None:
-        return None
     try:
         number = int(text)
     except ValueError as exc:
@@ -44,41 +30,93 @@ def parse_int(value: object, label: str, lo: int, hi: int, *, blank: int | None 
     return number
 
 
-def validate_recommendation(values: Mapping[str, object]) -> dict[str, int]:
-    rules = {
-        "max_age": ("최대 나이", 15, 30, 21), "min_minutes": ("최소 출전 분", 0, 5000, 900),
-        "k": ("k", 1, 200, 25), "top_n": ("top_n", 1, 200, 20),
-        "pool_lag_seasons": ("pool_lag", 0, 10, 3), "seed": ("seed", 1, 2**63 - 1, 42),
-    }
-    return {key: int(parse_int(values.get(key), rule[0], rule[1], rule[2], blank=rule[3]) or rule[3])
-            for key, rule in rules.items()}
+def pos_group_of(label: str) -> str | None:
+    return POS_LABELS.get(label or "") or None
 
 
-def season_columns(pos_group: str | None) -> tuple[tuple[str, str], ...]:
-    return POSITION_COLUMNS.get(pos_group or "", BASE_SEASON_COLUMNS)
+def season_label(season: object) -> str:
+    """2024 -> '2024/25' (시즌 시작 연도)."""
+    if season is None or season == "":
+        return "-"
+    y = int(season)
+    return f"{y}/{(y + 1) % 100:02d}"
 
 
-def format_season_value(key: str, value: object) -> str:
+def competition_name(slug: str | None) -> str:
+    """'premier-league' -> 'Premier League', 'uefa-champions-league' -> 'UEFA Champions League'."""
+    if not slug:
+        return "-"
+    words = []
+    for w in slug.split("-"):
+        words.append(_WORD_FIX.get(w, w[:1].upper() + w[1:]))
+    return " ".join(words)
+
+
+def eur(value: object) -> str:
     if value is None:
         return "-"
-    if key == "m_minutes_share":
-        return f"{float(value) * 100:.1f}%"
-    if key.startswith("m_"):
-        return f"{float(value):.3f}"
-    return str(value)
+    amount = float(value)
+    if abs(amount) >= 1_000_000:
+        return f"€{amount / 1_000_000:.1f}M"
+    if amount == 0:
+        return "€0"
+    return f"€{amount / 1_000:.0f}K"
 
 
-def growth_series(rows: Iterable[Mapping], pos_group: str) -> dict[str, list]:
-    ordered = sorted(rows, key=lambda row: (row.get("season", 0), row.get("age", 0)))
-    out: dict[str, list] = {"season": [], "age": []}
-    metrics = GROWTH_METRICS.get(pos_group, ("m_minutes_share",))
-    for metric in metrics:
-        out[metric] = []
-    for row in ordered:
-        out["season"].append(row.get("season")); out["age"].append(row.get("age"))
-        for metric in metrics:
-            out[metric].append(row.get(metric))
+def fee_text(fee: object) -> str:
+    """이적료: 알 수 없으면 '-'. 데이터에 이적 유형 컬럼이 없으므로 '자유 이적'/'임대'는 추정하지 않는다."""
+    return "-" if fee is None else eur(fee)
+
+
+def banner_text(cutoff: Mapping) -> str:
+    season = cutoff.get("season")
+    tail = f"({season_label(season)} 시즌까지, 이후 이적 미반영)" if season is not None else "(이후 이적 미반영)"
+    return f"데이터 기준: 경기 {cutoff.get('game') or '-'} · 시장가치 {cutoff.get('valuation') or '-'} {tail}"
+
+
+def coverage_note(summary: Mapping) -> str:
+    parts = [f"유럽 1부 {summary.get('covered_leagues', 0)}개 리그"]
+    types = set(summary.get("types", ()))
+    if "domestic_cup" in types:
+        parts.append("국내컵")
+    if summary.get("has_uefa"):
+        parts.append("UEFA 대회")
+    if "national_team_competition" in types:
+        parts.append("주요 국가대항전")
+    return "·".join(parts) + "만 수록. 그 외 리그(MLS, K리그 등) 기록은 없음."
+
+
+def transfer_rows(rows: Iterable[Mapping]) -> list[tuple]:
+    """transfer_history 결과 -> 표 행 (날짜, 시즌, 이전 → 이후, 이적료, 당시 시장가치)."""
+    out = []
+    for r in rows:
+        date = r["transfer_date"] + (" (예정)" if r.get("upcoming") else "")
+        out.append((date, r.get("transfer_season") or "-",
+                    f"{r.get('from_club') or '-'} → {r.get('to_club') or '-'}",
+                    fee_text(r.get("fee_eur")), eur(r.get("market_value_eur"))))
     return out
+
+
+def season_rows(rows: Iterable[Mapping]) -> list[tuple[tuple, bool]]:
+    """career_seasons 결과 -> [(표 행, 소계 여부)]."""
+    out = []
+    for r in rows:
+        sub = bool(r.get("is_subtotal"))
+        starts = "-" if r.get("starts") is None else r["starts"]
+        out.append(((season_label(r["season"]),
+                     "소계" if sub else r["club_name"],
+                     "" if sub else competition_name(r["competition_slug"]),
+                     r["apps"], starts, r["minutes"], r["goals"], r["assists"], r["yellow"], r["red"]), sub))
+    return out
+
+
+def season_chart_series(rows: Iterable[Mapping]) -> dict:
+    """소계 행에서 시즌별 (분, 골+도움) 시리즈. 리그만/전체 대회 두 벌을 만들 때 각각 호출."""
+    subs = [r for r in rows if r.get("is_subtotal")]
+    subs.sort(key=lambda r: r["season"])
+    return {"seasons": [season_label(r["season"]) for r in subs],
+            "minutes": [r["minutes"] for r in subs],
+            "ga": [r["goals"] + r["assists"] for r in subs]}
 
 
 def valuation_series(rows: Iterable[Mapping]) -> dict:
@@ -91,34 +129,11 @@ def valuation_series(rows: Iterable[Mapping]) -> dict:
     return {"dates": dates, "values": values, "peak": peak}
 
 
-def ordered_percentiles(rows: Iterable[Mapping]) -> list[dict]:
-    return sorted((dict(row) for row in rows),
-                  key=lambda row: (row.get("weight") is None, -(row.get("weight") or 0), row.get("metric_code", "")))
-
-
-def eur(value: object) -> str:
-    if value is None:
-        return "-"
-    amount = float(value)
-    if abs(amount) >= 1_000_000:
-        return f"€{amount / 1_000_000:.1f}M"
-    return f"€{amount / 1_000:.0f}K"
-
-
-def local_time(value: str | None, tz=None) -> str:
-    if not value:
-        return "-"
-    try:
-        dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return value
-    return dt.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
+def club_moves(transfers: Iterable[Mapping]) -> list[tuple[str, str]]:
+    """차트 마커용: 구단이 바뀐 이적의 (날짜, 도착 구단). 도착 구단이 없는 행은 제외."""
+    return [(t["transfer_date"], t["to_club"]) for t in transfers
+            if t.get("to_club") and t.get("from_club_id") != t.get("to_club_id")]
 
 
 def identifier(value: object) -> str:
     return "-" if value is None else str(int(value))
-
-
-def metric_display(row: Mapping) -> str:
-    value = row.get("display_value")
-    return "-" if value is None else f"{float(value):.2f}{row.get('unit', '')}"

@@ -270,3 +270,180 @@ def similar_players(
         ).fetchone()
         out.append({**n, "name": info["name"], "age": info["age"], "club_name": info["club_name"]})
     return out
+
+
+# ---------------------------------------------------------------------------
+# 커리어 탐색기용 읽기 전용 서비스 (GUI). 위 함수들은 수정하지 않고 추가만 한다.
+# ---------------------------------------------------------------------------
+
+def data_cutoff(conn: sqlite3.Connection) -> dict:
+    """데이터 기준일: 경기/출전/시장가치의 최대 날짜와 마지막 경기 시즌(시작 연도)."""
+    return {
+        "game": conn.execute("SELECT MAX(date) FROM game").fetchone()[0],
+        "appearance": conn.execute("SELECT MAX(date) FROM appearance").fetchone()[0],
+        "valuation": conn.execute("SELECT MAX(date) FROM player_valuation").fetchone()[0],
+        "season": conn.execute("SELECT MAX(season) FROM game").fetchone()[0],
+    }
+
+
+def nationalities(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT country_of_citizenship FROM player "
+        "WHERE country_of_citizenship IS NOT NULL AND country_of_citizenship <> '' "
+        "ORDER BY country_of_citizenship COLLATE NOCASE"
+    )
+    return [r[0] for r in rows]
+
+
+def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age) -> tuple[str, list]:
+    where: list[str] = []
+    params: list = []
+    ref = _reference_date(conn)
+    if name and name.strip():
+        where.append("p.name LIKE ? ESCAPE '\\'")
+        params.append(f"%{_like_escape(name.strip())}%")
+    if pos_group:
+        where.append("p.pos_group = ?")
+        params.append(pos_group)
+    if nationality:
+        where.append("p.country_of_citizenship = ?")
+        params.append(nationality)
+    if club_name and club_name.strip():
+        like = f"%{_like_escape(club_name.strip())}%"
+        ids = "SELECT club_id FROM club WHERE name LIKE ? ESCAPE '\\'"
+        where.append(
+            f"(p.player_id IN (SELECT a.player_id FROM appearance a WHERE a.club_id IN ({ids})) "
+            f"OR p.player_id IN (SELECT t.player_id FROM transfer t WHERE t.from_club_id IN ({ids}) "
+            f"OR t.to_club_id IN ({ids})))"
+        )
+        params += [like, like, like]
+    if max_age is not None:
+        where.append("p.date_of_birth IS NOT NULL AND p.date_of_birth > date(?, ?)")
+        params += [ref, f"-{int(max_age) + 1} years"]
+    if min_age is not None:
+        where.append("p.date_of_birth IS NOT NULL AND p.date_of_birth <= date(?, ?)")
+        params += [ref, f"-{int(min_age)} years"]
+    return (("WHERE " + " AND ".join(where)) if where else ""), params
+
+
+def count_players_ext(
+    conn: sqlite3.Connection, *, name=None, pos_group=None, nationality=None,
+    club_name=None, min_age=None, max_age=None,
+) -> int:
+    clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age)
+    return conn.execute(f"SELECT COUNT(*) FROM player p {clause}", params).fetchone()[0]
+
+
+def search_players_ext(
+    conn: sqlite3.Connection, *, name=None, pos_group=None, nationality=None, club_name=None,
+    min_age=None, max_age=None, limit: int = 20, offset: int = 0,
+) -> list[dict]:
+    """search_players 와 같은 관련도 정렬(완전 일치 → 단어 접두 → 부분, 최고 시장가치 내림차순) + 국적/출신 구단/나이 하한."""
+    ref = _reference_date(conn)
+    clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age)
+    rank_sql, rank_params = "0", []
+    if name and name.strip():
+        q = _like_escape(name.strip())
+        rank_sql = (
+            "CASE WHEN p.name = ? COLLATE NOCASE THEN 0 "
+            "WHEN p.name LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\' THEN 1 "
+            "ELSE 2 END"
+        )
+        rank_params = [name.strip(), f"{q}%", f"% {q}%", f"%-{q}%"]
+    sql = f"""
+        SELECT c.* FROM (
+            SELECT p.player_id, {rank_sql} AS rk,
+                   COALESCE((SELECT MAX(v.market_value_eur) FROM player_valuation v
+                              WHERE v.player_id = p.player_id), -1) AS pk
+            FROM player p {clause}
+            ORDER BY rk, pk DESC, p.name COLLATE NOCASE, p.player_id LIMIT ? OFFSET ?
+        ) s
+        JOIN v_player_card c ON c.player_id = s.player_id
+        ORDER BY s.rk, s.pk DESC, c.name COLLATE NOCASE, c.player_id
+    """  # 조각은 고정 문자열, 값은 전부 ? 바인딩.
+    rows = [dict(r) for r in conn.execute(sql, (*rank_params, *params, int(limit), int(offset)))]
+    for r in rows:
+        r["age"] = _age_on(r["date_of_birth"], ref)
+    return rows
+
+
+def transfer_history(conn: sqlite3.Connection, player_id: int, *, cutoff: str | None = None) -> list[dict]:
+    """이적 이력(유소년 포함), 날짜 오름차순. upcoming=1 이면 데이터 기준일(마지막 경기일) 이후 이적."""
+    cutoff = cutoff or data_cutoff(conn)["game"]
+    rows = conn.execute(
+        """SELECT t.transfer_id, t.transfer_date, t.transfer_season,
+                  t.from_club_id, f.name AS from_club, t.to_club_id, c.name AS to_club,
+                  t.fee_eur, t.market_value_eur
+           FROM transfer t
+           LEFT JOIN club f ON f.club_id = t.from_club_id
+           LEFT JOIN club c ON c.club_id = t.to_club_id
+           WHERE t.player_id = ?
+           ORDER BY t.transfer_date, t.transfer_id""",
+        (player_id,),
+    )
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["upcoming"] = int(bool(cutoff) and d["transfer_date"] > cutoff)
+        out.append(d)
+    return out
+
+
+def career_seasons(conn: sqlite3.Connection, player_id: int, *, league_only: bool = False) -> list[dict]:
+    """(시즌, 구단, 대회) 단위 기록 + 시즌 소계 행(is_subtotal=1, club/competition 은 None).
+
+    appearance(player_id, date) 인덱스 → game(PK) → competition(PK) → game_lineup(PK) 조인.
+    starts 는 라인업 데이터가 있는 경기가 하나도 없으면 None.
+    """
+    league = "AND co.type = 'domestic_league'" if league_only else ""
+    sql = f"""
+        SELECT g.season, a.club_id, cl.name AS club_name, a.competition_id,
+               co.name AS competition_slug, co.type AS competition_type,
+               COUNT(*) AS apps, COUNT(l.game_id) AS lineup_rows,
+               COALESCE(SUM(l.is_starter), 0) AS starts,
+               SUM(a.minutes_played) AS minutes, SUM(a.goals) AS goals, SUM(a.assists) AS assists,
+               SUM(a.yellow_cards) AS yellow, SUM(a.red_cards) AS red
+        FROM appearance a
+        JOIN game g ON g.game_id = a.game_id
+        JOIN competition co ON co.competition_id = a.competition_id
+        JOIN club cl ON cl.club_id = a.club_id
+        LEFT JOIN game_lineup l ON l.game_id = a.game_id AND l.player_id = a.player_id
+        WHERE a.player_id = ? {league}
+        GROUP BY g.season, a.club_id, a.competition_id
+        ORDER BY g.season, (co.type = 'domestic_league') DESC, minutes DESC, a.competition_id, a.club_id
+    """  # league 는 고정 문자열 조각.
+    rows = [dict(r) for r in conn.execute(sql, (player_id,))]
+    out: list[dict] = []
+    keys = ("apps", "minutes", "goals", "assists", "yellow", "red")
+    i = 0
+    while i < len(rows):
+        j = i
+        while j < len(rows) and rows[j]["season"] == rows[i]["season"]:
+            j += 1
+        grp = rows[i:j]
+        for r in grp:
+            r["is_subtotal"] = 0
+            r["starts"] = r["starts"] if r.pop("lineup_rows") else None
+            out.append(r)
+        sub = {"season": rows[i]["season"], "club_id": None, "club_name": None, "competition_id": None,
+               "competition_slug": None, "competition_type": None, "is_subtotal": 1}
+        for k in keys:
+            sub[k] = sum(r[k] for r in grp)
+        known = [r["starts"] for r in grp if r["starts"] is not None]
+        sub["starts"] = sum(known) if known else None
+        out.append(sub)
+        i = j
+    return out
+
+
+def coverage_summary(conn: sqlite3.Connection) -> dict:
+    """수록 범위: is_covered 리그 수와 실제 출전 기록이 있는 대회 유형."""
+    covered = conn.execute("SELECT COUNT(*) FROM competition WHERE is_covered = 1").fetchone()[0]
+    types = {r[0] for r in conn.execute(
+        "SELECT DISTINCT co.type FROM competition co WHERE EXISTS "
+        "(SELECT 1 FROM appearance a WHERE a.competition_id = co.competition_id)")}
+    uefa = conn.execute(
+        "SELECT 1 FROM competition co WHERE (co.is_uefa_club = 1 OR co.type = 'international_cup' "
+        "OR co.sub_type LIKE 'uefa%') AND EXISTS (SELECT 1 FROM appearance a "
+        "WHERE a.competition_id = co.competition_id) LIMIT 1").fetchone() is not None
+    return {"covered_leagues": covered, "types": sorted(types), "has_uefa": uefa}
