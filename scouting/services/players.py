@@ -115,6 +115,15 @@ def player_card(conn: sqlite3.Connection, player_id: int) -> dict | None:
     return d
 
 
+def latest_snapshot_season(conn: sqlite3.Connection, snapshot_id: int, player_id: int) -> int | None:
+    """선택한 스냅샷에 포함된 선수의 가장 최근 완료 시즌 (GUI/CLI 흐름 보조)."""
+    row = conn.execute(
+        "SELECT MAX(season) FROM v_player_season_asof WHERE snapshot_id = ? AND player_id = ?",
+        (snapshot_id, player_id),
+    ).fetchone()
+    return int(row[0]) if row and row[0] is not None else None
+
+
 def valuation_by_season(conn: sqlite3.Connection, player_id: int) -> list[dict]:
     """시즌(7/1~다음 해 6/30)별 시장가치 요약: 최고(날짜)·최종(날짜)·건수."""
     by: dict[int, dict] = {}
