@@ -71,3 +71,47 @@ def test_search_age_range_and_relevance(career_conn):
     assert [r["player_id"] for r in players.search_players_ext(career_conn, name="career guy")] == [301]
     assert len(players.search_players_ext(career_conn, name="guy", limit=1, offset=1)) == 1
     assert players.count_players_ext(career_conn, name="guy") == 2
+
+
+def test_suggest_players_ranking_and_fields(career_conn):
+    rows = players.suggest_players(career_conn, "guy")
+    assert [r["player_id"] for r in rows][:1] == [301]            # 같은 순위(부분 일치)에서는 최고 시장가치가 앞
+    assert {r["player_id"] for r in rows} == {301, 302}
+    first = rows[0]
+    assert first["name"] == "Career Guy" and first["birth_year"] == "2000" and first["sub_position"] == "Centre-Forward"
+    assert first["current_club_name"] == "Alpha FC"
+    assert [r["player_id"] for r in players.suggest_players(career_conn, "career guy")] == [301]
+    assert players.suggest_players(career_conn, "zzzz") == [] and players.suggest_players(career_conn, "  ") == []
+    assert len(players.suggest_players(career_conn, "guy", limit=1)) == 1
+    assert players.suggest_players(career_conn, "%") == []          # LIKE 와일드카드는 이스케이프
+
+
+def test_suggest_players_prefers_exact_then_word_prefix(career_conn):
+    from tests.gui.career_synth import add_player
+
+    add_player(career_conn, 310, "Guy", "1995-01-01")             # 이름이 정확히 같다
+    add_player(career_conn, 311, "Big Guyton", "1995-01-01")      # 부분 일치만
+    career_conn.commit()
+    names = [r["name"] for r in players.suggest_players(career_conn, "guy")]
+    assert names[0] == "Guy"                                       # 완전 일치
+    assert names.index("Career Guy") < names.index("Big Guyton")   # 단어 접두 -> 부분 일치
+
+
+def test_suggest_clubs_orders_by_players_passed_through(career_conn):
+    rows = players.suggest_clubs(career_conn, "a")
+    names = [r["name"] for r in rows]
+    assert "Alpha FC" in names and "Beta United" in names and "Gamma SC" in names
+    assert players.suggest_clubs(career_conn, "gam")[0]["name"] == "Gamma SC"
+    assert players.suggest_clubs(career_conn, "gam")[0]["n_players"] == 2          # 301, 303 이 거쳐 감
+    assert players.suggest_clubs(career_conn, "") == [] and players.suggest_clubs(career_conn, "zzz") == []
+
+
+def test_search_by_sub_positions(career_conn):
+    both = players.search_players_ext(career_conn, sub_positions=["Right Winger", "Centre-Forward"])
+    assert {r["player_id"] for r in both} == {301, 303}
+    assert players.count_players_ext(career_conn, sub_positions=["Right Winger", "Centre-Forward"]) == 2
+    only = players.search_players_ext(career_conn, sub_positions=["Central Midfield"])
+    assert [r["player_id"] for r in only] == [302]
+    combined = players.search_players_ext(career_conn, nationality="Korea, South", sub_positions=["Right Winger"])
+    assert [r["player_id"] for r in combined] == [303]
+    assert players.count_players_ext(career_conn, sub_positions=[]) == players.count_players_ext(career_conn)

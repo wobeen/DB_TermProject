@@ -127,6 +127,8 @@ def configure_ttk(style, fonts: Fonts, display_scale: float, tree_linespace: int
     style.configure("Band.TLabel", background=TURF, foreground=PITCH_LINE, font=fonts.semibold(15))
     style.configure("BandSmall.TLabel", background=TURF, foreground=PITCH_LINE, font=label)
     style.configure("Rail.TLabel", background=TURF, foreground=PITCH_LINE, font=label)
+    style.configure("RailNote.TLabel", background=TURF, foreground=mix(TURF, PITCH_LINE, 0.7), font=label)
+    style.configure("RailError.TLabel", background=PAPER, foreground=CARD_RED, font=label, padding=(4, 1))
     style.configure("RailTitle.TLabel", background=TURF, foreground=PITCH_LINE, font=fonts.spec("section"))
     style.configure("Name.TLabel", font=fonts.spec("name"))
     style.configure("Section.TLabel", font=fonts.spec("section"))

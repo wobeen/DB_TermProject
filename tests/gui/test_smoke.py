@@ -18,6 +18,19 @@ def tk_root():
     root.destroy()
 
 
+def _show(root):
+    root.deiconify()
+    root.update()
+
+
+def _type(root, auto, text, entry_var):
+    """입력 칸에 글자를 넣은 것처럼 연관검색어 흐름을 돌린다 (150 ms 디바운스 포함)."""
+    entry_var.set(text)
+    auto.last_text = ""                                        # 새로 입력한 것처럼
+    auto.on_key(type("Key", (), {"keysym": "x"})())
+    _wait(root, lambda: auto.is_open(), timeout=5)
+
+
 def _dispose(app):
     """앱이 만든 위젯과 DB 연결만 정리하고 root 는 남긴다."""
     app.conn.close()
@@ -112,5 +125,129 @@ def test_next_player_crosses_page_boundary(career_path, tk_root):
         app.career.step(-1)                                     # 다시 1페이지 20번째
         _wait(root, lambda: app.career.card is not None and app.career.card["player_id"] == twentieth)
         assert app.search.page == 0 and app.career.index == 19
+    finally:
+        _dispose(app)
+
+
+def test_name_suggestions_open_career_on_accept(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        auto = app.search.name_auto
+        _type(root, auto, "guy", app.search.name)
+        assert [i["player_id"] for i in auto.items] == [301, 302]
+        assert auto.listbox.get(0) == "Career Guy  ST 공격수 · Alpha FC  2000"
+        auto.on_down(None)                                     # 첫 줄 강조
+        assert auto.index == 0
+        auto.on_return(None)                                   # 선택하면 그 선수의 커리어가 바로 열린다
+        _wait(root, lambda: app.career.card is not None and app.career.card["player_id"] == 301)
+        assert not auto.is_open() and app.career.index is None
+        # 고르지 않은 Enter 는 팝업만 닫고 일반 검색으로 넘어간다 (Esc 는 닫기만)
+        app.show_search()
+        _type(root, auto, "guy", app.search.name)
+        assert auto.on_escape(None) == "break" and not auto.is_open()
+        _type(root, auto, "guy", app.search.name)
+        assert auto.on_return(None) is None and not auto.is_open()
+        # 한 글자는 제안하지 않는다
+        app.search.name.set("g")
+        auto.last_text = ""
+        auto.on_key(type("Key", (), {"keysym": "g"})())
+        root.update()
+        assert not auto.is_open()
+    finally:
+        _dispose(app)
+
+
+def test_stale_suggestions_are_dropped(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        auto = app.search.name_auto
+        app.search.name.set("guy")
+        auto.deliver(auto.token + 5, "guy", [{"player_id": 1}])          # 토큰이 다른 오래된 결과
+        assert not auto.is_open()
+        auto.token += 1
+        auto.deliver(auto.token, "something else", [{"player_id": 1}])   # 입력이 이미 바뀐 결과
+        assert not auto.is_open()
+    finally:
+        _dispose(app)
+
+
+def test_nationality_autocomplete_and_invalid_value_blocks_search(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        s = app.search
+        _type(root, s.nat_auto, "kor", s.nat)
+        assert s.nat_auto.items == ["Korea, South"]
+        s.nat_auto.on_down(None)
+        s.nat_auto.on_tab(None)                                # Tab 은 고른 항목을 받아들인다
+        assert s.nat.get() == "Korea, South"
+        s.nat.set("sds")                                       # 목록에 없는 값
+        s.search()
+        root.update()
+        assert s.nat_error.winfo_manager() == "pack" and s.nat_error.cget("text") == "국적 목록에서 골라 주세요"
+        assert not s.tree.get_children() and not s.pending       # 검색하지 않았다
+        s.nat.set("한국")                                        # 한글 별칭은 정식 이름으로 풀린다
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 2)
+        assert s.nat.get() == "Korea, South" and s.nat_error.winfo_manager() == ""
+    finally:
+        _dispose(app)
+
+
+def test_club_suggestions_fill_field(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        s = app.search
+        _type(root, s.club_auto, "gam", s.club)
+        assert s.club_auto.items[0]["name"] == "Gamma SC"
+        s.club_auto.accept(0)
+        assert s.club.get() == "Gamma SC"
+        s.search()                                              # 구단 칸은 일반 부분 일치 검색으로 이어진다
+        _wait(root, lambda: len(s.tree.get_children()) == 2)
+    finally:
+        _dispose(app)
+
+
+def test_formation_picker_filters_by_position(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        s = app.search
+        s.set_formation("4-3-3")
+        assert len(s.picker.slots) == 11
+        s.picker.toggle("AMR")
+        s.picker.toggle("ST")
+        assert s.picker.codes() == ["AMR", "ST"] and s.picked_label.cget("text") == "선택한 포지션: AMR, ST"
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 2)
+        codes = {s.tree.item(i, "values")[1].split()[0] for i in s.tree.get_children()}
+        assert codes == {"AMR", "ST"}
+        s.picker.toggle("ST")                                  # 선택 해제
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 1)
+        assert s.tree.item(s.tree.get_children()[0], "values")[1] == "AMR 공격수"
+        # 캔버스의 점을 직접 눌러도 같은 코드가 토글된다 (CB 는 두 점이지만 한 번만 선택)
+        s.picker.clear()
+        x, y = next((x, y) for code, x, y in s.picker.slots if code == "AMR")
+        s.picker.on_click(type("Click", (), {"x": int(x), "y": int(y)})())
+        assert s.picker.codes() == ["AMR"]
+        s.picker.on_click(type("Click", (), {"x": int(x), "y": int(y)})())
+        assert s.picker.codes() == []
+        cb = [(x, y) for code, x, y in s.picker.slots if code == "CB"]
+        assert len(cb) == 2
+        s.picker.on_click(type("Click", (), {"x": int(cb[1][0]), "y": int(cb[1][1])})())
+        assert s.picker.codes() == ["CB"]
+        s.set_formation("")                                    # 포메이션을 끄면 선택이 사라지고 필터도 없다
+        assert s.picker.codes() == [] and s.picker.slots == []
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 3)
     finally:
         _dispose(app)

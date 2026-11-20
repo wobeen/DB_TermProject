@@ -122,7 +122,7 @@ def test_fit_label_fits_truncates_or_drops():
 
 
 def test_position_and_notes():
-    assert logic.position_text({"pos_group": "FW", "sub_position": "Left Winger"}) == "공격수 (Left Winger)"
+    assert logic.position_text({"pos_group": "FW", "sub_position": "Left Winger"}) == "AML 공격수 (Left Winger)"
     assert logic.position_text({"pos_group": "GK", "sub_position": None}) == "골키퍼"
     assert "14개" in logic.no_league_note({"covered_leagues": 14})
     assert logic.EMPTY_SEARCH.startswith("조건에 맞는 선수가 없습니다.")
@@ -158,3 +158,62 @@ def test_youth_collapse_and_strip_start():
     assert logic.strip_start("2005-01-01", "2010-12-01") == "2009-12-01"
     assert logic.strip_start("2012-01-01", "2010-12-01") == "2012-01-01"
     assert logic.strip_start("2005-01-01", None) == "2005-01-01"
+
+
+def test_formations_and_codes():
+    assert logic.FORMATIONS["4-3-3"] == (("LB", "CB", "CB", "RB"), ("CM", "DM", "CM"), ("AML", "ST", "AMR"))
+    assert logic.formation_rows("4-2-3-1") == [("GK",), ("LB", "CB", "CB", "RB"), ("DM", "DM"),
+                                              ("AML", "AMC", "AMR"), ("ST",)]
+    assert logic.formation_rows("nope") == []
+    assert set(logic.FORMATIONS) == {"4-4-2", "4-3-3", "4-2-3-1", "4-1-4-1", "4-4-1-1", "3-5-2", "3-4-3",
+                                     "5-3-2", "5-4-1"}
+    for name, rows in logic.FORMATIONS.items():                      # 필드 플레이어 10명, 모든 코드가 매핑됨
+        assert sum(len(r) for r in rows) == 10, name
+        assert all(code in logic.POSITION_SUBS for r in rows for code in r), name
+
+
+def test_code_to_sub_position_mapping_and_reverse():
+    assert logic.sub_positions_for(["LWB"]) == ["Left-Back", "Left Midfield"]
+    assert logic.sub_positions_for(["AMC"]) == ["Attacking Midfield", "Second Striker"]
+    assert logic.sub_positions_for(["ST"]) == ["Centre-Forward", "Second Striker"]
+    assert logic.sub_positions_for(["AMR", "ST"]) == ["Right Winger", "Centre-Forward", "Second Striker"]
+    assert logic.sub_positions_for(["CB", "DM"]) == ["Centre-Back", "Defensive Midfield"]
+    assert logic.sub_positions_for(["AMC", "ST"]).count("Second Striker") == 1       # 합집합은 중복 없이
+    assert logic.sub_positions_for(["XX"]) == [] and logic.sub_positions_for([]) == []
+    assert logic.position_code("Right Winger") == "AMR" and logic.position_code("Left Winger") == "AML"
+    assert logic.position_code("Second Striker") == "ST" and logic.position_code(None) is None
+    # 모든 sub_position 은 대표 코드가 있고, 그 코드의 매핑에 다시 포함된다
+    for sub, code in logic.SUB_TO_CODE.items():
+        assert sub in logic.POSITION_SUBS[code], (sub, code)
+    assert logic.position_label("FW", "Right Winger") == "AMR 공격수"
+    assert logic.position_label("GK", "Goalkeeper") == "GK 골키퍼"
+    assert logic.position_label("FW", None) == "공격수"
+
+
+def test_country_aliases_and_nationality_suggestions():
+    known = ["Argentina", "Japan", "Korea, North", "Korea, South", "South Africa", "Spain"]
+    assert logic.suggest_nationalities("한국", known)[0] == "Korea, South"
+    assert logic.suggest_nationalities("대한", known) == ["Korea, South"]
+    assert logic.suggest_nationalities("일본", known) == ["Japan"]
+    assert logic.suggest_nationalities("kor", known) == ["Korea, North", "Korea, South"]       # 접두 일치, 목록 순서
+    assert logic.suggest_nationalities("SOUTH", known) == ["South Africa", "Korea, South"]     # 접두 먼저, 부분 일치 나중
+    assert logic.suggest_nationalities("xyz", known) == [] and logic.suggest_nationalities("", known) == []
+    assert logic.suggest_nationalities("a", known, limit=2) == ["Argentina", "Japan"][:2]
+    assert len(logic.COUNTRY_ALIASES) >= 25
+    for ko in ("한국", "대한민국", "일본", "잉글랜드", "스페인", "독일", "프랑스", "이탈리아", "브라질", "아르헨티나",
+               "포르투갈", "네덜란드", "벨기에"):
+        assert ko in logic.COUNTRY_ALIASES
+    assert logic.resolve_nationality("korea, south", known) == "Korea, South"
+    assert logic.resolve_nationality("대한민국", known) == "Korea, South"
+    assert logic.resolve_nationality("sds", known) is None and logic.resolve_nationality("", known) is None
+    assert logic.resolve_nationality("프랑스", known) is None             # 목록에 없는 나라는 별칭이어도 무효
+
+
+def test_suggestion_row_text():
+    item = {"name": "Heung-min Son", "pos_group": "FW", "sub_position": "Left Winger",
+            "current_club_name": "Los Angeles FC", "birth_year": "1992"}
+    assert logic.suggestion_row(item) == "Heung-min Son  AML 공격수 · Los Angeles FC  1992"
+    assert logic.suggestion_row({"name": "X", "pos_group": None, "sub_position": None,
+                                 "current_club_name": None, "birth_year": None}) == "X"
+    assert logic.suggestion_row({"name": "Wesley Sonck", "pos_group": None, "sub_position": None,
+                                 "current_club_name": "SK Beveren", "birth_year": "1978"}) == "Wesley Sonck  SK Beveren  1978"

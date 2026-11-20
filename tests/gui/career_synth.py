@@ -43,6 +43,8 @@ def build_career(path):
                                      (303, "Never Played", "2004-01-01", "Attack", "Korea, South")):
         add_player(conn, pid, name, dob, pos)
         conn.execute("UPDATE player SET country_of_citizenship = ? WHERE player_id = ?", (nat, pid))
+    for pid, sub in ((301, "Centre-Forward"), (302, "Central Midfield"), (303, "Right Winger")):
+        conn.execute("UPDATE player SET sub_position = ? WHERE player_id = ?", (sub, pid))
     add_game(conn, 1, "GB1", 2023, "2023-09-01")
     add_game(conn, 2, "GB1", 2023, "2023-10-01")
     add_game(conn, 3, "CL", 2023, "2023-11-01")

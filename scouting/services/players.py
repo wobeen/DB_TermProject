@@ -295,7 +295,8 @@ def nationalities(conn: sqlite3.Connection) -> list[str]:
     return [r[0] for r in rows]
 
 
-def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age) -> tuple[str, list]:
+def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age,
+                 sub_positions=None) -> tuple[str, list]:
     where: list[str] = []
     params: list = []
     ref = _reference_date(conn)
@@ -317,6 +318,9 @@ def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age
             f"OR t.to_club_id IN ({ids})))"
         )
         params += [like, like, like]
+    if sub_positions:
+        where.append("p.sub_position IN (" + ",".join("?" * len(sub_positions)) + ")")
+        params += list(sub_positions)
     if max_age is not None:
         where.append("p.date_of_birth IS NOT NULL AND p.date_of_birth > date(?, ?)")
         params += [ref, f"-{int(max_age) + 1} years"]
@@ -328,19 +332,21 @@ def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age
 
 def count_players_ext(
     conn: sqlite3.Connection, *, name=None, pos_group=None, nationality=None,
-    club_name=None, min_age=None, max_age=None,
+    club_name=None, min_age=None, max_age=None, sub_positions=None,
 ) -> int:
-    clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age)
+    clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age,
+                                  sub_positions)
     return conn.execute(f"SELECT COUNT(*) FROM player p {clause}", params).fetchone()[0]
 
 
 def search_players_ext(
     conn: sqlite3.Connection, *, name=None, pos_group=None, nationality=None, club_name=None,
-    min_age=None, max_age=None, limit: int = 20, offset: int = 0,
+    min_age=None, max_age=None, limit: int = 20, offset: int = 0, sub_positions=None,
 ) -> list[dict]:
     """search_players 와 같은 관련도 정렬(완전 일치 → 단어 접두 → 부분, 최고 시장가치 내림차순) + 국적/출신 구단/나이 하한."""
     ref = _reference_date(conn)
-    clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age)
+    clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age,
+                                  sub_positions)
     rank_sql, rank_params = "0", []
     if name and name.strip():
         q = _like_escape(name.strip())
@@ -453,3 +459,68 @@ def first_appearance_date(conn: sqlite3.Connection, player_id: int) -> str | Non
     """수록된 첫 출전 경기 날짜 (appearance(player_id, date) 인덱스로 MIN 한 번)."""
     row = conn.execute("SELECT MIN(date) FROM appearance WHERE player_id = ?", (player_id,)).fetchone()
     return row[0]
+
+
+def suggest_players(conn: sqlite3.Connection, text: str, limit: int = 8) -> list[dict]:
+    """이름 연관검색어. 정렬은 search_players 와 같다: 완전 일치 -> 단어 접두 -> 부분 일치, 같은 순위는 최고 시장가치 순.
+
+    순위 단계(rk)별로 따로 조회해서, 시장가치 서브쿼리를 필요한 단계의 후보에만 돌린다.
+    """
+    q = (text or "").strip()
+    if not q:
+        return []
+    esc = _like_escape(q)
+    out: list[dict] = []
+    for rk in (0, 1, 2):
+        need = limit - len(out)
+        if need <= 0:
+            break
+        rows = conn.execute(
+            """SELECT c.player_id, c.name, c.pos_group, c.sub_position, c.date_of_birth,
+                      c.current_club_name, c.peak_value_eur
+               FROM (
+                 SELECT p.player_id, p.name,
+                        COALESCE((SELECT MAX(v.market_value_eur) FROM player_valuation v
+                                   WHERE v.player_id = p.player_id), -1) AS pk
+                 FROM player p
+                 WHERE p.name LIKE ? ESCAPE '\\'
+                   AND (CASE WHEN p.name = ? COLLATE NOCASE THEN 0
+                             WHEN p.name LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\'
+                                  OR p.name LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END) = ?
+                 ORDER BY pk DESC, p.name COLLATE NOCASE, p.player_id LIMIT ?
+               ) s JOIN v_player_card c ON c.player_id = s.player_id
+               ORDER BY s.pk DESC, c.name COLLATE NOCASE, c.player_id""",
+            (f"%{esc}%", q, f"{esc}%", f"% {esc}%", f"%-{esc}%", rk, need),
+        ).fetchall()
+        for r in rows:
+            d = dict(r)
+            d["birth_year"] = (d["date_of_birth"] or "")[:4] or None
+            out.append(d)
+    return out
+
+
+def suggest_clubs(conn: sqlite3.Connection, text: str, limit: int = 8) -> list[dict]:
+    """구단 연관검색어. 이름이 접두/단어 접두로 맞는 구단을 먼저, 같은 단계에서는 거쳐 간 선수가 많은 순.
+
+    거쳐 간 선수 수는 이적 기록(도착/출발 구단)에서 센다: 출전 기록에는 구단 인덱스가 없어 매번 전체를 훑어야 한다.
+    """
+    q = (text or "").strip()
+    if not q:
+        return []
+    esc = _like_escape(q)
+    rows = conn.execute(
+        """WITH m AS (
+               SELECT club_id, name,
+                      CASE WHEN name LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END AS rk
+               FROM club WHERE name LIKE ? ESCAPE '\\'),
+           pc AS (
+               SELECT t.to_club_id AS club_id, t.player_id FROM transfer t JOIN m ON m.club_id = t.to_club_id
+               UNION
+               SELECT t.from_club_id, t.player_id FROM transfer t JOIN m ON m.club_id = t.from_club_id)
+           SELECT m.club_id, m.name, COUNT(pc.player_id) AS n_players
+           FROM m LEFT JOIN pc ON pc.club_id = m.club_id
+           GROUP BY m.club_id, m.name, m.rk
+           ORDER BY m.rk, n_players DESC, m.name COLLATE NOCASE LIMIT ?""",
+        (f"{esc}%", f"% {esc}%", f"%{esc}%", int(limit)),
+    ).fetchall()
+    return [dict(r) for r in rows]

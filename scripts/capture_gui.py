@@ -32,10 +32,10 @@ def wait(root, predicate, timeout=180):
     raise TimeoutError("GUI 작업 제한 시간을 초과했습니다")
 
 
-def capture(root, path):
+def capture(root, path, focus=None):
     root.attributes("-topmost", True)
     root.lift()
-    root.focus_force()
+    (focus or root).focus_force()      # 팝업을 띄운 입력 칸이 포커스를 잃으면 팝업이 닫힌다
     root.update_idletasks()
     root.update()
     time.sleep(.8)
@@ -43,6 +43,15 @@ def capture(root, path):
     x, y = root.winfo_rootx(), root.winfo_rooty()
     image = ImageGrab.grab((x, y, x + root.winfo_width(), y + root.winfo_height()))
     path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+    print(f"{path}: {image.size[0]}x{image.size[1]}")
+
+
+def grab(root, path):
+    root.update()
+    time.sleep(.6)
+    x, y = root.winfo_rootx(), root.winfo_rooty()
+    image = ImageGrab.grab((x, y, x + root.winfo_width(), y + root.winfo_height()))
     image.save(path)
     print(f"{path}: {image.size[0]}x{image.size[1]}")
 
@@ -64,8 +73,22 @@ def main():
         root.focus_force()
         root.update()
 
+        # 이름 연관검색어 팝업 ("son") — 저장소에 커밋하지 않는다
+        entry, auto = app.search.name_entry, app.search.name_auto
+        entry.focus_force()
+        app.search.name.set("son")
+        auto.on_key(type("Key", (), {"keysym": "n"})())
+        wait(root, auto.is_open, 30)
+        popup_up = auto.is_open()
+        grab(root, ROOT / "data" / "tasks" / "gui_suggest.png")      # 창을 건드리지 않고 그대로 찍는다 (팝업이 닫히지 않게)
+        print("suggest popup open while capturing:", popup_up, auto.is_open())
+        auto.close()
+        app.search.name.set("")
+
+        # 4-3-3 의 오른쪽 윙(AMR) + 한국 국적
+        app.search.set_formation("4-3-3")
+        app.search.picker.toggle("AMR")
         app.search.nat.set("Korea, South")
-        app.search.pos.set("공격수")
         app.search.search()
         wait(root, lambda: bool(app.search.tree.get_children()) and not app.search.pending)
         capture(root, out / "gui_search.png")

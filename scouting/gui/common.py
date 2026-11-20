@@ -70,14 +70,15 @@ class BackgroundJobs:
         self.status = status
 
     def submit(self, label, job, on_success=lambda _result: None, *, button=None, on_error=None,
-               busy=None, done=None):
+               busy=None, done=None, quiet=False):
         """busy: 진행 중 문구, done(result, elapsed) -> 완료 문구. 없으면 '<label> 중...' / '<label> 완료 (n초)'."""
+        status = (lambda _text: None) if quiet else self.status
         start = time.perf_counter()
         delivery = queue.Queue(maxsize=1)
         ready = threading.Event()
         if button is not None:
             button.configure(state="disabled")
-        self.status(busy or f"{label} 중...")
+        status(busy or f"{label} 중...")
 
         def worker():
             connection = None
@@ -96,15 +97,16 @@ class BackgroundJobs:
                 button.configure(state="normal")
             elapsed = time.perf_counter() - start
             if error is None:
-                self.status(done(result, elapsed) if done else f"{label} 완료 ({elapsed:.1f}초)")
+                status(done(result, elapsed) if done else f"{label} 완료 ({elapsed:.1f}초)")
                 on_success(result)
                 return
             text = friendly_error(error)
-            self.status(f"오류: {text}")
+            status(f"오류: {text}")
             if (isinstance(error, sqlite3.OperationalError) and is_locked(error)
                     and isinstance(self.root, tk.Misc)
                     and messagebox.askretrycancel("DB 사용 중", text, parent=self.root)):
-                self.submit(label, job, on_success, button=button, on_error=on_error, busy=busy, done=done)
+                self.submit(label, job, on_success, button=button, on_error=on_error, busy=busy, done=done,
+                            quiet=quiet)
                 return
             if on_error:
                 on_error(error)
@@ -113,7 +115,7 @@ class BackgroundJobs:
             try:
                 result, error = delivery.get_nowait()
             except queue.Empty:
-                self.status(f"{busy or label + ' 중...'} ({time.perf_counter() - start:.1f}초)")
+                status(f"{busy or label + ' 중...'} ({time.perf_counter() - start:.1f}초)")
                 self.root.after(100, poll)
             else:
                 finish(result, error)

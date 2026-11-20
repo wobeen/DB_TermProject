@@ -6,8 +6,13 @@ from tkinter import ttk
 from scouting.services import players
 from .. import logic, theme
 from ..common import clear_tree, make_tree
+from ..widgets import Autocomplete, PitchPicker
 
 PAGE_SIZE = 20
+
+
+class InlineError(ValueError):
+    """입력 칸 아래에 직접 안내를 띄운 오류: 대화상자 없이 검색만 막는다."""
 
 
 class SearchView(ttk.Frame):
@@ -22,27 +27,69 @@ class SearchView(ttk.Frame):
         rail = ttk.Frame(self, style="Rail.TFrame", width=round(250 * app.dpi / 96.0))
         rail.pack(side="left", fill="y")
         rail.pack_propagate(False)
-        ttk.Label(rail, text="검색 조건", style="RailTitle.TLabel").pack(anchor="w", padx=14, pady=(14, 4))
+        ttk.Label(rail, text="검색 조건", style="RailTitle.TLabel").pack(anchor="w", padx=14, pady=(14, 2))
         self.name = tk.StringVar()
-        self.pos = tk.StringVar()
+        self.formation = tk.StringVar(value=logic.NO_FORMATION)
         self.nat = tk.StringVar()
         self.club = tk.StringVar()
         self.min_age = tk.StringVar()
         self.max_age = tk.StringVar()
         self.entries = []
 
-        def field(label, widget):
-            ttk.Label(rail, text=label, style="Rail.TLabel").pack(anchor="w", padx=14, pady=(10, 2))
-            widget.pack(fill="x", padx=14)
-            self.entries.append(widget)
-            return widget
+        def label(text, pady=(8, 2)):
+            ttk.Label(rail, text=text, style="Rail.TLabel").pack(anchor="w", padx=14, pady=pady)
 
-        field("이름", ttk.Entry(rail, textvariable=self.name))
-        field("포지션군", ttk.Combobox(rail, textvariable=self.pos, values=tuple(logic.POS_LABELS),
-                                      state="readonly"))
-        field("국적", ttk.Combobox(rail, textvariable=self.nat, values=("", *app.nationalities)))
-        field("거쳐 간 구단 (이름 일부)", ttk.Entry(rail, textvariable=self.club))
-        ttk.Label(rail, text="나이 범위 (기준일 만 나이)", style="Rail.TLabel").pack(anchor="w", padx=14, pady=(10, 2))
+        # 이름: 두 글자부터 연관검색어, 고르면 바로 그 선수의 커리어
+        label("이름")
+        self.name_entry = ttk.Entry(rail, textvariable=self.name)
+        self.name_entry.pack(fill="x", padx=14)
+        self.name_auto = Autocomplete(
+            self.name_entry, app, min_chars=2, render=logic.suggestion_row,
+            job=lambda text: (lambda conn: players.suggest_players(conn, text, limit=8)),
+            on_accept=self.accept_player)
+        self.entries.append(self.name_entry)
+
+        # 포메이션 -> 자리 고르기
+        label("포메이션")
+        self.formation_box = ttk.Combobox(rail, textvariable=self.formation, state="readonly",
+                                          values=(logic.NO_FORMATION, *logic.FORMATIONS))
+        self.formation_box.pack(fill="x", padx=14)
+        self.formation_box.bind("<<ComboboxSelected>>", lambda _e: self.on_formation())
+        self.picker = PitchPicker(rail, app, on_change=self.refresh_picked)
+        self.picker.pack(padx=14, pady=(6, 0), anchor="w")
+        picked = ttk.Frame(rail, style="Rail.TFrame")
+        picked.pack(fill="x", padx=14, pady=(2, 0))
+        self.picked_label = ttk.Label(picked, text="", style="Rail.TLabel")
+        self.picked_label.pack(side="left")
+        self.clear_btn = ttk.Button(picked, text="지우기", style="Rail.TButton", width=6,
+                                    command=self.picker.clear)
+        self.clear_btn.pack(side="right")
+        ttk.Label(rail, text="선수 등록 주 포지션 기준", style="RailNote.TLabel").pack(anchor="w", padx=14)
+        self.refresh_picked()
+
+        # 국적: 목록에서만 고른다 (한글 별칭도 찾는다)
+        label("국적")
+        self.nat_entry = ttk.Entry(rail, textvariable=self.nat)
+        self.nat_entry.pack(fill="x", padx=14)
+        self.nat_error = ttk.Label(rail, text=logic.NATIONALITY_ERROR, style="RailError.TLabel")
+        self.nat_auto = Autocomplete(
+            self.nat_entry, app, min_chars=1, render=str,
+            local=lambda text: logic.suggest_nationalities(text, app.nationalities),
+            on_accept=self.accept_nationality)
+        self.nat.trace_add("write", lambda *_: self.nat_error.pack_forget())
+        self.entries.append(self.nat_entry)
+
+        # 거쳐 간 구단: 제안은 도와 줄 뿐, 일부만 써도 검색된다
+        label("거쳐 간 구단 (이름 일부)")
+        self.club_entry = ttk.Entry(rail, textvariable=self.club)
+        self.club_entry.pack(fill="x", padx=14)
+        self.club_auto = Autocomplete(
+            self.club_entry, app, min_chars=2, render=lambda item: item["name"],
+            job=lambda text: (lambda conn: players.suggest_clubs(conn, text, limit=8)),
+            on_accept=lambda item: self.club.set(item["name"]))
+        self.entries.append(self.club_entry)
+
+        label("나이 범위 (기준일 만 나이)")
         ages = ttk.Frame(rail, style="Rail.TFrame")
         ages.pack(fill="x", padx=14)
         low = ttk.Entry(ages, textvariable=self.min_age, width=5)
@@ -54,10 +101,10 @@ class SearchView(ttk.Frame):
         self.entries += [low, high]
         self.search_btn = ttk.Button(rail, text="검색", style="RailPrimary.TButton",
                                      command=lambda: self.search(0))
-        self.search_btn.pack(fill="x", padx=14, pady=(18, 6))
+        self.search_btn.pack(fill="x", padx=14, pady=(14, 4))
         ttk.Button(rail, text="초기화", style="Rail.TButton", command=self.reset).pack(fill="x", padx=14)
-        for widget in self.entries:
-            widget.bind("<Return>", lambda _e: self.search(0))
+        for widget in self.entries:      # 연관검색어 Enter 처리 뒤에 일반 검색이 이어지도록 add="+"
+            widget.bind("<Return>", lambda _e: self.search(0), add="+")
 
         right = ttk.Frame(self)
         right.pack(side="left", fill="both", expand=True, padx=(14, 14), pady=12)
@@ -68,7 +115,7 @@ class SearchView(ttk.Frame):
         self.pager = ttk.Label(top, text="", style="Muted.TLabel")
         self.pager.pack(side="right")
         columns = (
-            ("name", "이름", 170, True), ("pos", "포지션", 70), ("nat", "국적", 120, True),
+            ("name", "이름", 170, True), ("pos", "포지션", 100), ("nat", "국적", 120, True),
             ("age", "나이", 50), ("club", "현재 구단", 170, True), ("value", "현재 가치", 90), ("peak", "최고 가치", 90),
         )
         self.tree = make_tree(right, columns, height=18, left=("name", "pos", "nat", "club"))
@@ -88,34 +135,65 @@ class SearchView(ttk.Frame):
         self.forward_btn = ttk.Button(foot, text="열어 둔 커리어 ▶", command=lambda: app.show_career())
         self.forward_btn.pack(side="left")
 
+    # --- 연관검색어 / 포메이션 --------------------------------------------------------
+    def accept_player(self, item):
+        self.name.set(item["name"])
+        self.app.open_career(item["player_id"])
+
+    def accept_nationality(self, country):
+        self.nat.set(country)
+        self.nat_error.pack_forget()
+
+    def on_formation(self):
+        self.picker.set_formation(self.formation.get())
+
+    def set_formation(self, name):
+        self.formation.set(name or logic.NO_FORMATION)
+        self.on_formation()
+
+    def refresh_picked(self):
+        codes = self.picker.codes()
+        self.picked_label.configure(text="선택한 포지션: " + (", ".join(codes) if codes else "없음"))
+        self.clear_btn.state(["!disabled"] if codes else ["disabled"])
+
     def refresh_nav(self):
         self.forward_btn.configure(state="normal" if self.app.career.player_id else "disabled")
 
     def reset(self):
-        for var in (self.name, self.pos, self.nat, self.club, self.min_age, self.max_age):
+        for var in (self.name, self.nat, self.club, self.min_age, self.max_age):
             var.set("")
+        self.set_formation("")
 
     def filters(self):
-        nat = self.nat.get().strip() or None
-        if nat and nat not in self.app.nationalities:
-            raise ValueError("국적: 목록에 있는 값을 선택해 주세요.")
+        nat = None
+        if self.nat.get().strip():
+            nat = logic.resolve_nationality(self.nat.get(), self.app.nationalities)
+            if nat is None:
+                self.nat_error.pack(anchor="w", padx=14, pady=(3, 0), after=self.nat_entry)
+                raise InlineError(logic.NATIONALITY_ERROR)
+            self.nat.set(nat)             # 한글 별칭으로 쓴 경우 정식 이름으로 바꿔 보여 준다
         lo = logic.parse_int(self.min_age.get(), "최소 나이", 1, 100)
         hi = logic.parse_int(self.max_age.get(), "최대 나이", 1, 100)
         if lo is not None and hi is not None and lo > hi:
             raise ValueError("나이: 최소가 최대보다 클 수 없습니다.")
         return {
             "name": self.name.get().strip() or None,
-            "pos_group": logic.pos_group_of(self.pos.get()),
             "nationality": nat,
             "club_name": self.club.get().strip() or None,
             "min_age": lo,
             "max_age": hi,
+            "sub_positions": logic.sub_positions_for(self.picker.codes()) or None,
         }
 
     def search(self, page=0, *, use_last=False, open_index=None):
         """use_last: 페이지 이동처럼 마지막으로 검색한 조건을 그대로 쓴다. open_index: 로드 후 그 위치의 선수를 연다."""
+        for auto in (self.name_auto, self.nat_auto, self.club_auto):
+            auto.close()
         try:
             filters = self.last_filters if (use_last and self.last_filters is not None) else self.filters()
+        except InlineError as exc:
+            self.app.set_status(str(exc))
+            return
         except ValueError as exc:
             self.app.error(exc)
             return
@@ -137,8 +215,9 @@ class SearchView(ttk.Frame):
             clear_tree(self.tree)
             for i, row in enumerate(rows):
                 self.tree.insert("", "end", iid=str(row["player_id"]), tags=(f"zebra{i % 2}",), values=(
-                    row["name"], logic.POS_KO.get(row["pos_group"], "-"),
-                    row["country_of_citizenship"] or "-", str("-" if row["age"] is None else row["age"]) + "  ",
+                    row["name"], logic.position_label(row["pos_group"], row["sub_position"]),
+                    row["country_of_citizenship"] or "-",
+                    str("-" if row["age"] is None else row["age"]) + "  ",
                     row["current_club_name"] or "-", logic.eur(row["latest_value_eur"]) + "  ",
                     logic.eur(row["peak_value_eur"]) + "  ",
                 ))

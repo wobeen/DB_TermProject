@@ -250,10 +250,134 @@ def fit_label(name: str, available: float, measure, min_chars: int = 3) -> str |
     return None
 
 
+# --- 포메이션과 포지션 코드 ---------------------------------------------------------------
+# 코드 -> player.sub_position (Transfermarkt 등록 주 포지션). 순서는 화면 표시 순서.
+POSITION_SUBS = {
+    "GK": ("Goalkeeper",),
+    "LB": ("Left-Back",), "RB": ("Right-Back",), "CB": ("Centre-Back",),
+    "LWB": ("Left-Back", "Left Midfield"), "RWB": ("Right-Back", "Right Midfield"),
+    "DM": ("Defensive Midfield",), "CM": ("Central Midfield",),
+    "LM": ("Left Midfield", "Left Winger"), "RM": ("Right Midfield", "Right Winger"),
+    "AMC": ("Attacking Midfield", "Second Striker"),
+    "AML": ("Left Winger",), "AMR": ("Right Winger",),
+    "ST": ("Centre-Forward", "Second Striker"),
+}
+# sub_position -> 대표 코드 (결과 표/프로필에 보이는 코드). 여러 코드에 걸치면 가장 흔한 쪽.
+SUB_TO_CODE = {
+    "Goalkeeper": "GK", "Left-Back": "LB", "Right-Back": "RB", "Centre-Back": "CB",
+    "Defensive Midfield": "DM", "Central Midfield": "CM", "Left Midfield": "LM", "Right Midfield": "RM",
+    "Attacking Midfield": "AMC", "Left Winger": "AML", "Right Winger": "AMR",
+    "Centre-Forward": "ST", "Second Striker": "ST",
+}
+NO_FORMATION = "선택 안 함"
+# 아래(수비)에서 위(공격) 순서. GK 줄은 모든 포메이션에 공통으로 맨 아래에 붙는다.
+FORMATIONS = {
+    "4-4-2": (("LB", "CB", "CB", "RB"), ("LM", "CM", "CM", "RM"), ("ST", "ST")),
+    "4-3-3": (("LB", "CB", "CB", "RB"), ("CM", "DM", "CM"), ("AML", "ST", "AMR")),
+    "4-2-3-1": (("LB", "CB", "CB", "RB"), ("DM", "DM"), ("AML", "AMC", "AMR"), ("ST",)),
+    "4-1-4-1": (("LB", "CB", "CB", "RB"), ("DM",), ("LM", "CM", "CM", "RM"), ("ST",)),
+    "4-4-1-1": (("LB", "CB", "CB", "RB"), ("LM", "CM", "CM", "RM"), ("AMC",), ("ST",)),
+    "3-5-2": (("CB", "CB", "CB"), ("LWB", "CM", "DM", "CM", "RWB"), ("ST", "ST")),
+    "3-4-3": (("CB", "CB", "CB"), ("LWB", "CM", "CM", "RWB"), ("AML", "ST", "AMR")),
+    "5-3-2": (("LWB", "CB", "CB", "CB", "RWB"), ("CM", "DM", "CM"), ("ST", "ST")),
+    "5-4-1": (("LWB", "CB", "CB", "CB", "RWB"), ("LM", "CM", "CM", "RM"), ("ST",)),
+}
+
+
+def formation_rows(formation: str) -> list[tuple[str, ...]]:
+    """GK 줄을 포함한 줄 목록(아래 -> 위). 모르는 이름이면 빈 목록."""
+    rows = FORMATIONS.get(formation)
+    return [("GK",), *rows] if rows else []
+
+
+def sub_positions_for(codes: Iterable[str]) -> list[str]:
+    """선택한 코드들의 sub_position 합집합 (중복 없이, 코드 순서대로)."""
+    out: list[str] = []
+    for code in codes:
+        for sub in POSITION_SUBS.get(code, ()):
+            if sub not in out:
+                out.append(sub)
+    return out
+
+
+def position_code(sub_position: str | None) -> str | None:
+    return SUB_TO_CODE.get(sub_position or "")
+
+
+def position_label(pos_group: str | None, sub_position: str | None) -> str:
+    """결과 표의 포지션 칸: 'AMR 공격수'. 코드가 없으면 그룹 이름만."""
+    group = POS_KO.get(pos_group, "-")
+    code = position_code(sub_position)
+    return f"{code} {group}" if code else group
+
+
+# --- 국적 연관검색 ------------------------------------------------------------------------
+COUNTRY_ALIASES = {
+    "한국": "Korea, South", "대한민국": "Korea, South", "남한": "Korea, South", "북한": "Korea, North",
+    "일본": "Japan", "중국": "China", "잉글랜드": "England", "영국": "England", "스코틀랜드": "Scotland",
+    "웨일스": "Wales", "스페인": "Spain", "독일": "Germany", "프랑스": "France", "이탈리아": "Italy",
+    "브라질": "Brazil", "아르헨티나": "Argentina", "포르투갈": "Portugal", "네덜란드": "Netherlands",
+    "벨기에": "Belgium", "크로아티아": "Croatia", "세르비아": "Serbia", "폴란드": "Poland",
+    "스위스": "Switzerland", "덴마크": "Denmark", "스웨덴": "Sweden", "노르웨이": "Norway",
+    "우루과이": "Uruguay", "콜롬비아": "Colombia", "멕시코": "Mexico", "미국": "United States",
+    "나이지리아": "Nigeria", "세네갈": "Senegal", "모로코": "Morocco", "이집트": "Egypt",
+    "호주": "Australia", "튀르키예": "Turkey", "터키": "Turkey", "러시아": "Russia", "우크라이나": "Ukraine",
+}
+
+
+def suggest_nationalities(text: str, nationalities: Iterable[str], limit: int = 8) -> list[str]:
+    """영문은 대소문자 무시 부분 일치, 한글은 별칭 부분 일치. 접두 일치를 먼저, 그다음 부분 일치(목록 순서 유지)."""
+    q = (text or "").strip().lower()
+    if not q:
+        return []
+    known = list(nationalities)
+    present = set(known)
+    first: list[str] = []
+    for alias, country in COUNTRY_ALIASES.items():          # 별칭: 입력이 별칭의 앞부분이면 그 나라
+        if alias.startswith(q) and country in present and country not in first:
+            first.append(country)
+    prefix = [n for n in known if n.lower().startswith(q) and n not in first]
+    inner = [n for n in known if q in n.lower() and not n.lower().startswith(q) and n not in first]
+    contains_alias = [c for a, c in COUNTRY_ALIASES.items()
+                      if q in a and not a.startswith(q) and c in present and c not in first + prefix + inner]
+    out = first + prefix + contains_alias + inner
+    return list(dict.fromkeys(out))[:limit]
+
+
+def resolve_nationality(text: str, nationalities: Iterable[str]) -> str | None:
+    """입력 문자열이 목록의 나라(대소문자 무시)나 한글 별칭과 정확히 같을 때만 그 나라를 돌려준다."""
+    q = (text or "").strip()
+    if not q:
+        return None
+    known = list(nationalities)
+    for n in known:
+        if n.lower() == q.lower():
+            return n
+    alias = COUNTRY_ALIASES.get(q)
+    return alias if alias in known else None
+
+
+NATIONALITY_ERROR = "국적 목록에서 골라 주세요"
+
+
+def suggestion_row(item: Mapping) -> str:
+    """이름 제안 목록의 한 줄: 'Heung-min Son  AML 공격수 · Los Angeles FC  1992' (모르는 항목은 생략)."""
+    label = position_label(item.get("pos_group"), item.get("sub_position"))
+    meta = " · ".join(part for part in (label if label != "-" else "", item.get("current_club_name") or "") if part)
+    text = item.get("name") or "-"
+    if meta:
+        text += "  " + meta
+    if item.get("birth_year"):
+        text += "  " + str(item["birth_year"])
+    return text
+
+
 def position_text(card: Mapping) -> str:
-    """'공격수 (Left Winger)'. 세부 포지션이 없으면 그룹 이름만."""
-    pos = POS_KO.get(card.get("pos_group"), card.get("position") or "-")
-    return f"{pos} ({card['sub_position']})" if card.get("sub_position") else pos
+    """'AML 공격수 (Left Winger)'. 세부 포지션이 없으면 그룹 이름만."""
+    label = position_label(card.get("pos_group"), card.get("sub_position"))
+    if label == "-":
+        label = card.get("position") or "-"
+    return f"{label} ({card['sub_position']})" if card.get("sub_position") else label
 
 
 def identifier(value: object) -> str:
