@@ -1,0 +1,5 @@
+# Q1 P EXPLAIN QUERY PLAN (player 918327, GK, age 19)
+   4    0  SEARCH ps USING PRIMARY KEY (player_id=?)
+  10    0  SEARCH c USING INTEGER PRIMARY KEY (rowid=?)
+-- stmt 2
+   2    0  SEARCH player_season_metric USING PRIMARY KEY (player_id=?)

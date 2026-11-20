@@ -1,0 +1,71 @@
+# similarity 추천 1회 (P, FW, current)
+# total_tt=0.975s (정렬: cumulative, 상위 25)
+         11594 function calls in 0.975 seconds
+
+   Ordered by: cumulative time
+   List reduced from 32 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.975    0.975 C:\Users\sinub\orca\projects\DB_TermProject\bench\bench_profile.py:49(<lambda>)
+        1    0.001    0.001    0.974    0.974 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:135(run_recommendation)
+        6    0.941    0.157    0.941    0.157 {method 'execute' of 'sqlite3.Connection' objects}
+        1    0.019    0.019    0.938    0.938 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\knn.py:61(knn)
+        1    0.002    0.002    0.016    0.016 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:37(_cand_rows)
+        2    0.006    0.003    0.006    0.003 {method 'executemany' of 'sqlite3.Connection' objects}
+        1    0.001    0.001    0.005    0.005 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:122(_save_evidence)
+        1    0.000    0.000    0.003    0.003 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:27(base_season)
+        1    0.000    0.000    0.003    0.003 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:101(_save_run)
+        2    0.000    0.000    0.003    0.001 {built-in method builtins.next}
+        2    0.000    0.000    0.003    0.001 C:\Users\sinub\orca\projects\DB_TermProject\scouting\db.py:39(transaction)
+        1    0.000    0.000    0.003    0.003 C:\Users\sinub\AppData\Local\Programs\Python\Python314\Lib\contextlib.py:145(__exit__)
+      188    0.001    0.000    0.002    0.000 {built-in method builtins.sum}
+       84    0.000    0.000    0.002    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:95(_sim_score)
+        1    0.000    0.000    0.002    0.002 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:114(_save_items)
+     2100    0.002    0.000    0.002    0.000 {method 'setdefault' of 'dict' objects}
+     2184    0.001    0.000    0.001    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:96(<genexpr>)
+     2100    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 C:\Users\sinub\AppData\Local\Programs\Python\Python314\Lib\contextlib.py:136(__enter__)
+     2184    0.000    0.000    0.000    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:97(<genexpr>)
+     2100    0.000    0.000    0.000    0.000 {built-in method math.sqrt}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+      520    0.000    0.000    0.000    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:200(<genexpr>)
+        1    0.000    0.000    0.000    0.000 {method 'sort' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 C:\Users\sinub\AppData\Local\Programs\Python\Python314\Lib\contextlib.py:303(helper)
+
+
+
+
+# ---- tottime 기준 ----
+         11594 function calls in 0.975 seconds
+
+   Ordered by: internal time
+   List reduced from 32 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        6    0.941    0.157    0.941    0.157 {method 'execute' of 'sqlite3.Connection' objects}
+        1    0.019    0.019    0.938    0.938 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\knn.py:61(knn)
+        2    0.006    0.003    0.006    0.003 {method 'executemany' of 'sqlite3.Connection' objects}
+        1    0.002    0.002    0.016    0.016 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:37(_cand_rows)
+     2100    0.002    0.000    0.002    0.000 {method 'setdefault' of 'dict' objects}
+      188    0.001    0.000    0.002    0.000 {built-in method builtins.sum}
+        1    0.001    0.001    0.974    0.974 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:135(run_recommendation)
+        1    0.001    0.001    0.005    0.005 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:122(_save_evidence)
+     2184    0.001    0.000    0.001    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:96(<genexpr>)
+     2100    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+        1    0.000    0.000    0.003    0.003 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:27(base_season)
+     2184    0.000    0.000    0.000    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:97(<genexpr>)
+     2100    0.000    0.000    0.000    0.000 {built-in method math.sqrt}
+        1    0.000    0.000    0.975    0.975 C:\Users\sinub\orca\projects\DB_TermProject\bench\bench_profile.py:49(<lambda>)
+       84    0.000    0.000    0.002    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:95(_sim_score)
+        1    0.000    0.000    0.002    0.002 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:114(_save_items)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+      520    0.000    0.000    0.000    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:200(<genexpr>)
+        1    0.000    0.000    0.000    0.000 {method 'sort' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 {method 'format' of 'str' objects}
+       84    0.000    0.000    0.000    0.000 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:195(<lambda>)
+        1    0.000    0.000    0.000    0.000 C:\Users\sinub\AppData\Local\Programs\Python\Python314\Lib\contextlib.py:303(helper)
+        1    0.000    0.000    0.003    0.003 C:\Users\sinub\orca\projects\DB_TermProject\scouting\services\recommend.py:101(_save_run)
+        1    0.000    0.000    0.000    0.000 {method 'fetchone' of 'sqlite3.Cursor' objects}
+        2    0.000    0.000    0.003    0.001 C:\Users\sinub\orca\projects\DB_TermProject\scouting\db.py:39(transaction)
+
+

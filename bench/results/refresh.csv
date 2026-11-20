@@ -1,0 +1,13 @@
+operation,value,unit,rows,note
+build_player_season(1 season=2025) run1,16.26912369998172,s,6735,
+build_player_season(1 season=2025) run2,14.348192499950528,s,6735,
+build_player_season(1 season=2025) run3,13.535444799927063,s,6735,
+build_snapshot(current) run1,52.93621269997675,s,805714,z rows
+build_snapshot(current) run2,57.959586899960414,s,805714,z rows
+build_snapshot(current) run3,59.93596939998679,s,805714,z rows
+build_player_season(all 2012-2025),180.4614480000455,s,90238,
+build_snapshot(bt2018) after full rebuild,10.132217500009574,s,340722,z rows
+build_snapshot(current) after full rebuild,21.797964499914087,s,805714,z rows
+db_size_bytes main(with ix_ indexes),882540544,bytes,,bytes
+db_size_bytes B1(no ix_ indexes),581316608,bytes,,bytes
+"derived tables bytes (6 tables, no ix_ indexes; B1 size minus size after emptying them)",116498432,bytes,,bytes (VACUUM diff)

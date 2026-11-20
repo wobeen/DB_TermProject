@@ -1,0 +1,21 @@
+# Q3 P EXPLAIN QUERY PLAN (player 918327, GK, age 19)
+   2    0  CO-ROUTINE ranked
+   5    2  CO-ROUTINE (subquery-8)
+   7    5  CO-ROUTINE pairs
+  16    7  SEARCH player_season USING PRIMARY KEY (player_id=? AND season=?)
+  24    7  SEARCH metric_weight USING PRIMARY KEY (pos_group=?)
+  30    7  SEARCH z USING PRIMARY KEY (snapshot_id=? AND player_id=? AND season=? AND metric_code=?)
+  41    7  SEARCH pz USING COVERING INDEX ix_psz_cohort (snapshot_id=? AND pos_group=? AND age=? AND metric_code=?)
+  63    7  USE TEMP B-TREE FOR GROUP BY
+ 131    5  MATERIALIZE ctot
+ 140  131  SEARCH player_season USING PRIMARY KEY (player_id=? AND season=?)
+ 148  131  SEARCH z USING PRIMARY KEY (snapshot_id=? AND player_id=? AND season=?)
+ 158  131  SEARCH metric_weight USING PRIMARY KEY (pos_group=? AND metric_code=?)
+ 197    5  SCAN p
+ 204    5  BLOOM FILTER ON t (player_id=?)
+ 214    5  SEARCH t USING AUTOMATIC COVERING INDEX (player_id=?)
+ 241    5  USE TEMP B-TREE FOR ORDER BY
+ 263    2  SCAN (subquery-8)
+ 319    0  SCAN r
+ 324    0  SEARCH l USING PRIMARY KEY (snapshot_id=? AND def_id=? AND player_id=?) LEFT-JOIN
+ 350    0  USE TEMP B-TREE FOR ORDER BY

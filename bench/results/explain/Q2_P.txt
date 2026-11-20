@@ -1,0 +1,4 @@
+# Q2 P EXPLAIN QUERY PLAN (player 918327, GK, age 19)
+   5    0  SEARCH s USING INTEGER PRIMARY KEY (rowid=?)
+   8    0  SEARCH ps USING COVERING INDEX ix_player_season_cohort (ANY(season) AND pos_group=? AND age=?)
+  27    0  SEARCH cm USING PRIMARY KEY (player_id=? AND season=? AND metric_code=?)

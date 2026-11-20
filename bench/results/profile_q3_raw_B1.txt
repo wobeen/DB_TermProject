@@ -1,0 +1,37 @@
+# Q3 원천 경로 B1 1회 (player 918327)
+# total_tt=3.077s (정렬: cumulative, 상위 25)
+         28 function calls in 3.077 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    3.077    3.077 C:\Users\sinub\orca\projects\DB_TermProject\bench\bench_profile.py:55(<lambda>)
+        1    0.000    0.000    3.077    3.077 C:\Users\sinub\orca\projects\DB_TermProject\bench\bench_queries.py:64(run_q)
+        1    0.002    0.002    3.077    3.077 C:\Users\sinub\orca\projects\DB_TermProject\bench\raw_queries.py:338(q3_raw)
+        2    3.075    1.537    3.075    1.537 {method 'execute' of 'sqlite3.Connection' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 {method 'fetchone' of 'sqlite3.Cursor' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method math.sqrt}
+        1    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       10    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+
+
+
+
+# ---- tottime 기준 ----
+         28 function calls in 3.077 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        2    3.075    1.537    3.075    1.537 {method 'execute' of 'sqlite3.Connection' objects}
+        1    0.002    0.002    3.077    3.077 C:\Users\sinub\orca\projects\DB_TermProject\bench\raw_queries.py:338(q3_raw)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    3.077    3.077 C:\Users\sinub\orca\projects\DB_TermProject\bench\bench_queries.py:64(run_q)
+        1    0.000    0.000    3.077    3.077 C:\Users\sinub\orca\projects\DB_TermProject\bench\bench_profile.py:55(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'fetchone' of 'sqlite3.Cursor' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method math.sqrt}
+        1    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       10    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+
+

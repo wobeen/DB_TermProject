@@ -1,0 +1,50 @@
+{
+  "Q1/B2": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 0.8
+  },
+  "Q1/B1": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 30.0
+  },
+  "Q2/B2": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 64.3
+  },
+  "Q2/B1": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 75.9
+  },
+  "Q3/B2/def1": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 54.4
+  },
+  "Q3/B2/def2": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 55.3
+  },
+  "Q3/B1/def1": {
+    "n": 20,
+    "pass": true,
+    "errors": [],
+    "seconds": 76.2
+  },
+  "Q3/B1/def2": {
+    "n": 3,
+    "pass": true,
+    "errors": [],
+    "seconds": 140.4
+  }
+}
