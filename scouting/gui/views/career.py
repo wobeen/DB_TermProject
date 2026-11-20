@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import ttk
@@ -34,6 +35,12 @@ class CareerView(ttk.Frame):
         self.blocks: list[dict] = []
         self.strip_ax = None
         self.label_artists: list = []
+        self.value_ax = None
+        self.val_points: list[dict] = []
+        self.val_nums: list[float] = []
+        self.hover_marker = self.hover_line = None
+        self.hover_tip = self.strip_tip = None
+        self.last_motion = 0.0
         self.first_appearance = None
         self.xlim_lo = None
         self.season_names: dict = {}
@@ -86,6 +93,9 @@ class CareerView(ttk.Frame):
         strip_widget.configure(height=round(165 * scale), highlightthickness=0)
         strip_widget.pack(fill="x", **pad)
         self.strip_canvas.mpl_connect("resize_event", lambda _e: self.place_strip_labels())
+        self.strip_canvas.mpl_connect("motion_notify_event", self.on_motion)
+        self.strip_canvas.mpl_connect("axes_leave_event", lambda _e: self.hide_hover())
+        self.strip_canvas.mpl_connect("figure_leave_event", lambda _e: self.hide_hover())
 
         # --- 아래쪽: 이적 이력 (항상 5줄, 펼치면 전부) ------------------------------------
         ledger = ttk.Frame(self)
@@ -359,7 +369,91 @@ class CareerView(ttk.Frame):
             value.set_xlim(self.xlim_lo, _num(cutoff))
         value.xaxis.set_major_locator(mdates.YearLocator(2 if self._span_years() > 12 else 1))
         value.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        self._make_hover(strip, value, s)
         self.place_strip_labels()
+
+    # --- hover: 시장가치 선 위의 값 / 띠 블록의 구단·기간 -------------------------------------------
+    def _make_hover(self, strip, value, s):
+        self.value_ax = value
+        self.val_points = sorted(self.valuations, key=lambda v: v["date"])
+        self.val_nums = [_num(v["date"]) for v in self.val_points]
+        box = {"boxstyle": "square,pad=0.45", "fc": theme.PITCH_LINE, "ec": theme.RULE, "lw": 1}
+        self.hover_marker, = value.plot([], [], marker="o", markersize=7 * s, color=theme.CARD_YELLOW,
+                                        markeredgecolor=theme.INK, markeredgewidth=0.8, linestyle="none",
+                                        zorder=7, visible=False)
+        self.hover_line = value.axvline(0, color=theme.RULE, linewidth=1.0, zorder=2, visible=False)
+        self.hover_tip = value.annotate("", (0, 0), xytext=(10, 10), textcoords="offset points", fontsize=9 * s,
+                                        color=theme.INK, bbox=box, zorder=12, visible=False, annotation_clip=False)
+        self.strip_tip = strip.annotate("", (0, 0), xytext=(0, -8), textcoords="offset points", fontsize=9 * s,
+                                        color=theme.INK, bbox=box, zorder=12, visible=False, annotation_clip=False)
+        strip.set_zorder(3)                 # 띠 툴팁이 아래 시장가치 축 위에 그려지도록
+
+    def hide_hover(self):
+        changed = False
+        for artist in (self.hover_marker, self.hover_line, self.hover_tip, self.strip_tip):
+            if artist is not None and artist.get_visible():
+                artist.set_visible(False)
+                changed = True
+        if changed:
+            self.strip_canvas.draw_idle()
+
+    def on_motion(self, event):
+        now = time.monotonic()
+        if now - self.last_motion < 1 / 30:          # 대략 30 fps 로 제한
+            return
+        self.last_motion = now
+        if self.value_ax is None or event.inaxes is None or event.xdata is None:
+            self.hide_hover()
+            return
+        if event.inaxes is self.value_ax and self.val_nums:
+            self._hover_value(event.xdata)
+        elif event.inaxes is self.strip_ax and self.blocks:
+            self._hover_block(event.xdata)
+        else:
+            self.hide_hover()
+
+    def _flip(self, ax, x):
+        """축의 오른쪽 가까이면 툴팁을 왼쪽으로 뒤집는다."""
+        lo, hi = ax.get_xlim()
+        return (x - lo) / (hi - lo) > 0.65 if hi != lo else False
+
+    def _hover_value(self, x):
+        i = logic.nearest_index(self.val_nums, x)
+        point = self.val_points[i]
+        px, py = self.val_nums[i], point["market_value_eur"] / 1e6
+        ax = self.value_ax
+        self.hover_marker.set_data([px], [py])
+        self.hover_line.set_xdata([px, px])
+        tip = self.hover_tip
+        tip.set_text("\n".join(logic.tooltip_lines(point)))
+        tip.xy = (px, py)
+        left = self._flip(ax, px)
+        below = py > ax.get_ylim()[1] * 0.55
+        tip.set_position((-12 if left else 12, -12 if below else 12))
+        tip.set_ha("right" if left else "left")
+        tip.set_va("top" if below else "bottom")
+        for artist in (self.hover_marker, self.hover_line, tip):
+            artist.set_visible(True)
+        self.strip_tip.set_visible(False)
+        self.strip_canvas.draw_idle()
+
+    def _hover_block(self, x):
+        cutoff = self.app.cutoff["game"]
+        block = next((b for b in self.blocks if _num(b["start"]) <= x < _num(b["end"])), None)
+        if block is None:
+            self.hide_hover()
+            return
+        tip = self.strip_tip
+        tip.set_text(logic.block_tooltip(block["club"], block["start"], block["end"], cutoff))
+        tip.xy = (x, 0)
+        left = self._flip(self.strip_ax, x)
+        tip.set_ha("right" if left else "left")
+        tip.set_position((-6 if left else 6, -8))
+        tip.set_va("top")
+        tip.set_visible(True)
+        for artist in (self.hover_marker, self.hover_line, self.hover_tip):
+            artist.set_visible(False)
+        self.strip_canvas.draw_idle()
 
     def _span_years(self) -> float:
         if not self.blocks:

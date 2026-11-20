@@ -43,6 +43,7 @@ class ScoutingApp:
         self.cutoff = players.data_cutoff(self.conn)
         self.coverage = players.coverage_summary(self.conn)
         self.nationalities = players.nationalities(self.conn)
+        self.leagues = players.domestic_leagues(self.conn)      # 시작할 때 한 번만 읽어 둔다
 
         band = ttk.Frame(root, style="Band.TFrame")
         band.pack(fill="x")

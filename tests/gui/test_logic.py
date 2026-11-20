@@ -217,3 +217,80 @@ def test_suggestion_row_text():
                                  "current_club_name": None, "birth_year": None}) == "X"
     assert logic.suggestion_row({"name": "Wesley Sonck", "pos_group": None, "sub_position": None,
                                  "current_club_name": "SK Beveren", "birth_year": "1978"}) == "Wesley Sonck  SK Beveren  1978"
+
+
+def test_nearest_index_snaps_to_closest_point():
+    days = [100.0, 200.0, 400.0]
+    assert logic.nearest_index([], 5) is None
+    assert logic.nearest_index(days, 50) == 0 and logic.nearest_index(days, 100) == 0
+    assert logic.nearest_index(days, 149) == 0 and logic.nearest_index(days, 151) == 1
+    assert logic.nearest_index(days, 150) == 0                    # 같은 거리면 앞쪽(더 이른 날짜)
+    assert logic.nearest_index(days, 290) == 1 and logic.nearest_index(days, 310) == 2
+    assert logic.nearest_index(days, 999) == 2
+
+
+def test_tooltip_and_tenure_text():
+    point = {"date": "2024-03-15", "market_value_eur": 60_000_000, "club_name": "Liverpool FC"}
+    assert logic.tooltip_lines(point) == ["2024-03-15", "€60.0M", "Liverpool FC"]
+    assert logic.tooltip_lines({"date": "2020-01-01", "market_value_eur": 750_000, "club_name": None}) == [
+        "2020-01-01", "€750K", "-"]
+    assert logic.duration_text("2025-07-23", "2025-07-30") == "1개월 미만"
+    assert logic.duration_text("2025-01-10", "2025-12-10") == "11개월"
+    assert logic.duration_text("2015-08-28", "2025-08-06") == "10년"
+    assert logic.duration_text("2005-01-01", "2010-07-01") == "5년 6개월"
+    assert logic.block_tooltip("Liverpool FC", "2025-07-23", "2026-07-06", "2026-07-06") == \
+        "Liverpool FC / 2025-07 ~ 현재 (1년)"
+    assert logic.block_tooltip("Tottenham Hotspur", "2015-08-28", "2025-08-06", "2026-07-06") == \
+        "Tottenham Hotspur / 2015-08 ~ 2025-08 (10년)"
+
+
+def test_stint_text_current_and_truncation():
+    assert logic.stint_text([]) == "-"
+    assert logic.stint_text([("2022-07-01", "2025-07-01")]) == "2022-07 ~ 2025-07"
+    assert logic.stint_text([("2025-07-23", None)]) == "2025-07 ~ 현재"
+    assert logic.stint_text([(None, "2024-07-01")]) == "시작 미상 ~ 2024-07"
+    assert logic.stint_text([("2022-07-01", "2025-07-01", "transfer")]) == "2022-07 ~ 2025-07"
+    three = [("2010-01-01", "2012-01-01"), ("2014-01-01", "2016-01-01"), ("2018-01-01", None)]
+    assert logic.stint_text(three) == "2014-01 ~ 2016-01, 2018-01 ~ 현재 외 1회"       # 최근 2개 + 나머지 수
+    assert logic.stint_text(three[1:]) == "2014-01 ~ 2016-01, 2018-01 ~ 현재"
+    assert logic.stint_text(three + [("2020-01-01", "2021-01-01")]).endswith("외 2회")
+
+
+def test_league_and_club_options():
+    rows = [{"competition_id": "JAP1", "name": "j1-league", "country_name": "Japan", "is_covered": 0},
+            {"competition_id": "ES1", "name": "laliga", "country_name": "Spain", "is_covered": 1},
+            {"competition_id": "GB1", "name": "premier-league", "country_name": "England", "is_covered": 1},
+            {"competition_id": "A1", "name": "bundesliga", "country_name": "Austria", "is_covered": 0}]
+    opts = logic.league_options(rows)
+    assert opts == [("전체", None), ("LaLiga (Spain)", "ES1"), ("Premier League (England)", "GB1"),
+                    (logic.LEAGUE_SEPARATOR, None), ("Bundesliga (Austria)", "A1"), ("J1 League (Japan)", "JAP1")]
+    assert logic.league_options(rows[:1])[0] == ("전체", None) and len(logic.league_options(rows[:1])) == 2
+    clubs = logic.club_options([{"club_id": 5, "name": "Arsenal FC"}, {"club_id": 7, "name": "Same"},
+                                {"club_id": 9, "name": "Same"}])
+    assert clubs == [("리그 전체", None), ("Arsenal FC", 5), ("Same (#7)", 7), ("Same (#9)", 9)]
+
+
+def test_club_filter_priority_and_note():
+    assert logic.club_filter(31, [1, 2], "tot") == ("club", [31])           # 직접 고른 구단이 가장 우선
+    assert logic.club_filter(None, [1, 2], "tot") == ("text", None)         # 이름 일부 > 리그 전체
+    assert logic.club_filter(None, [1, 2], "  ") == ("league", [1, 2])
+    assert logic.club_filter(None, None, "") == (None, None)
+    assert logic.club_filter_note("club", club="Liverpool FC") == "적용: Liverpool FC (구단 선택)"
+    assert logic.club_filter_note("league", league="Premier League (England)") == \
+        "적용: Premier League (England) 전체 구단"
+    assert logic.club_filter_note("text", text=" Tot ") == "적용: 이름에 'Tot' 포함 구단"
+    assert logic.club_filter_note(None) == "적용 안 함"
+
+
+def test_tenure_text_marks_only_possibly_truncated_appearance_stints():
+    # 출전 기록 기반 구간이 수록 첫 시즌(2012/13) 안에서 시작하면 더 일찍 시작했을 수 있다 -> 표시
+    assert logic.tenure_text(("2012-08-26", "2012-08-30", "appearance")) == "2012-08 ~ 2012-08 (2012/13 이전 미수록)"
+    assert logic.tenure_text(("2012-08-26", None, "appearance")) == "2012-08 ~ 현재 (2012/13 이전 미수록)"
+    # 그 뒤에 시작한 출전 기록 기반 구간은 정확하므로 표시하지 않는다
+    assert logic.tenure_text(("2015-08-08", "2023-05-28", "appearance")) == "2015-08 ~ 2023-05"
+    assert logic.tenure_text(("2011-01-31", "2013-06-30", "transfer")) == "2011-01 ~ 2013-06"
+    assert logic.tenure_text(("2011-01-31", "2013-06-30")) == "2011-01 ~ 2013-06"          # 근거가 없으면 이적 기준
+    mixed = [("2010-01-01", "2012-01-01", "transfer"), ("2012-09-01", "2013-03-01", "appearance")]
+    assert logic.stint_text(mixed) == "2010-01 ~ 2012-01, 2012-09 ~ 2013-03 (2012/13 이전 미수록)"
+    many = mixed + [("2016-01-01", "2017-01-01", "appearance")]
+    assert logic.stint_text(many) == "2012-09 ~ 2013-03 (2012/13 이전 미수록), 2016-01 ~ 2017-01 외 1회"

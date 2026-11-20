@@ -31,6 +31,14 @@ def _type(root, auto, text, entry_var):
     _wait(root, lambda: auto.is_open(), timeout=5)
 
 
+def _motion(canvas, ax, x, y):
+    """데이터 좌표 (x, y) 위에서 마우스가 움직인 것처럼 matplotlib 이벤트를 만든다."""
+    from matplotlib.backend_bases import MouseEvent
+
+    px, py = ax.transData.transform((x, y))
+    return MouseEvent("motion_notify_event", canvas, px, py)
+
+
 def _dispose(app):
     """앱이 만든 위젯과 DB 연결만 정리하고 root 는 남긴다."""
     app.conn.close()
@@ -249,5 +257,88 @@ def test_formation_picker_filters_by_position(career_path, tk_root):
         assert s.picker.codes() == [] and s.picker.slots == []
         s.search()
         _wait(root, lambda: len(s.tree.get_children()) == 3)
+    finally:
+        _dispose(app)
+
+
+def test_league_club_pick_and_tenure_column(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        s = app.search
+        assert str(s.club_box.cget("state")) == "disabled"                  # 리그를 고르기 전에는 비활성
+        assert "재직 기간" not in [s.tree.heading(c, "text") for c in s.tree.cget("displaycolumns")]
+        s.league.set("Premier League (England)")
+        s.on_league()
+        assert str(s.club_box.cget("state")) == "readonly"
+        assert list(s.club_box.cget("values")) == ["리그 전체", "Alpha FC", "Beta United", "Gamma SC"]
+        s.club_pick.set("Alpha FC")
+        s.refresh_club_note()
+        assert s.club_note.cget("text") == "적용: Alpha FC (구단 선택)"
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 2)
+        shown = [s.tree.heading(c, "text") for c in s.tree.cget("displaycolumns")]
+        assert shown[shown.index("현재 구단") + 1] == "재직 기간"                    # 현재 구단 바로 뒤
+        tenures = {int(i): s.tree.set(i, "tenure") for i in s.tree.get_children()}
+        assert tenures == {301: "2022-07 ~ 2024-07", 302: "2023-09 ~ 2023-09"}       # 2013/14 이후 출전 기반은 표시 없음
+        s.club_pick.set("리그 전체")                                           # 리그 전체 -> 그 리그 구단 전부
+        s.refresh_club_note()
+        assert s.club_note.cget("text") == "적용: Premier League (England) 전체 구단"
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 3)
+        assert all(s.tree.set(i, "tenure") not in ("", "-") for i in s.tree.get_children())
+        s.club.set("Gamma")                                                    # 이름 일부가 리그 전체보다 우선
+        s.refresh_club_note()
+        assert "이름에 'Gamma'" in s.club_note.cget("text")
+        s.club_pick.set("Alpha FC")                                            # 직접 고른 구단이 이름 일부보다 우선
+        s.refresh_club_note()
+        assert s.club_note.cget("text") == "적용: Alpha FC (구단 선택)"
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 2)
+        s.reset()                                                              # 초기화하면 구단 조건과 열이 사라진다
+        assert str(s.club_box.cget("state")) == "disabled" and s.league.get() == "전체"
+        s.search()
+        _wait(root, lambda: len(s.tree.get_children()) == 3)
+        assert "tenure" not in s.tree.cget("displaycolumns")
+        s.club.set("nosuchclub")
+        s.search()
+        _wait(root, lambda: s.total == 0 and not s.pending)
+    finally:
+        _dispose(app)
+
+
+def test_value_hover_tooltip_and_block_tooltip(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        c = app.career
+        app.open_career(301)
+        _wait(root, lambda: c.card is not None)
+        root.update()
+        num = lambda day: __import__("matplotlib.dates", fromlist=["date2num"]).date2num(
+            __import__("datetime").datetime.fromisoformat(day))
+        c.last_motion = 0
+        c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2025-04-20"), 12.0))     # 2025-05-01 점에 가장 가깝다
+        text = c.hover_tip.get_text()
+        assert c.hover_tip.get_visible() and c.hover_marker.get_visible() and c.hover_line.get_visible()
+        assert text.split("\n") == ["2025-05-01", "€12.0M", "Alpha FC"]
+        assert tuple(c.hover_marker.get_xdata()) == (num("2025-05-01"),)
+        c.last_motion = 0
+        c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2023-02-01"), 3.0))      # 2023-01-01 점
+        assert c.hover_tip.get_text().split("\n")[:2] == ["2023-01-01", "€3.0M"]
+        c.last_motion = 0
+        c.on_motion(_motion(c.strip_canvas, c.strip_ax, num("2023-06-01"), 0.5))      # 띠 블록 위
+        assert c.strip_tip.get_visible() and not c.hover_tip.get_visible()
+        assert c.strip_tip.get_text() == "Alpha FC / 2022-07 ~ 2024-07 (2년)"
+        c.last_motion = 0
+        c.on_motion(_motion(c.strip_canvas, c.strip_ax, num("2024-12-01"), 0.5))
+        assert c.strip_tip.get_text() == "Beta United / 2024-07 ~ 현재 (11개월)"
+        c.last_motion = 0
+        c.on_motion(type("Leave", (), {"inaxes": None, "xdata": None})())            # 축 밖으로 나가면 모두 숨김
+        assert not any(a.get_visible() for a in (c.hover_marker, c.hover_line, c.hover_tip, c.strip_tip))
+        c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2025-04-20"), 12.0))     # 30 fps 제한: 바로 다음 이벤트는 무시
+        assert not c.hover_tip.get_visible()
     finally:
         _dispose(app)

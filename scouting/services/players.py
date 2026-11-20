@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import math
 from datetime import date
@@ -296,7 +297,7 @@ def nationalities(conn: sqlite3.Connection) -> list[str]:
 
 
 def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age,
-                 sub_positions=None) -> tuple[str, list]:
+                 sub_positions=None, club_ids=None) -> tuple[str, list]:
     where: list[str] = []
     params: list = []
     ref = _reference_date(conn)
@@ -318,6 +319,15 @@ def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age
             f"OR t.to_club_id IN ({ids})))"
         )
         params += [like, like, like]
+    if club_ids:
+        # 정확한 구단 id 로 거른다: 그 구단으로/에서 이적했거나 그 구단 소속으로 뛴 선수. id 목록은 JSON 한 개로 바인딩.
+        ids = "SELECT value FROM json_each(?)"
+        where.append(
+            f"(p.player_id IN (SELECT a.player_id FROM appearance a WHERE a.club_id IN ({ids})) "
+            f"OR p.player_id IN (SELECT t.player_id FROM transfer t WHERE t.from_club_id IN ({ids}) "
+            f"OR t.to_club_id IN ({ids})))")
+        blob = json.dumps([int(i) for i in club_ids])
+        params += [blob, blob, blob]
     if sub_positions:
         where.append("p.sub_position IN (" + ",".join("?" * len(sub_positions)) + ")")
         params += list(sub_positions)
@@ -332,21 +342,21 @@ def _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age
 
 def count_players_ext(
     conn: sqlite3.Connection, *, name=None, pos_group=None, nationality=None,
-    club_name=None, min_age=None, max_age=None, sub_positions=None,
+    club_name=None, min_age=None, max_age=None, sub_positions=None, club_ids=None,
 ) -> int:
     clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age,
-                                  sub_positions)
+                                  sub_positions, club_ids)
     return conn.execute(f"SELECT COUNT(*) FROM player p {clause}", params).fetchone()[0]
 
 
 def search_players_ext(
     conn: sqlite3.Connection, *, name=None, pos_group=None, nationality=None, club_name=None,
-    min_age=None, max_age=None, limit: int = 20, offset: int = 0, sub_positions=None,
+    min_age=None, max_age=None, limit: int = 20, offset: int = 0, sub_positions=None, club_ids=None,
 ) -> list[dict]:
     """search_players 와 같은 관련도 정렬(완전 일치 → 단어 접두 → 부분, 최고 시장가치 내림차순) + 국적/출신 구단/나이 하한."""
     ref = _reference_date(conn)
     clause, params = _filters_ext(conn, name, pos_group, nationality, club_name, min_age, max_age,
-                                  sub_positions)
+                                  sub_positions, club_ids)
     rank_sql, rank_params = "0", []
     if name and name.strip():
         q = _like_escape(name.strip())
@@ -524,3 +534,88 @@ def suggest_clubs(conn: sqlite3.Connection, text: str, limit: int = 8) -> list[d
         (f"{esc}%", f"% {esc}%", f"%{esc}%", int(limit)),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def domestic_leagues(conn: sqlite3.Connection) -> list[dict]:
+    """국내 1부/하위 리그 목록(competition.type='domestic_league'): 수록 리그(is_covered)가 먼저, 나라 이름순."""
+    rows = conn.execute(
+        """SELECT competition_id, name, country_name, is_covered FROM competition
+           WHERE type = 'domestic_league'
+           ORDER BY is_covered DESC, country_name COLLATE NOCASE, name COLLATE NOCASE, competition_id""")
+    return [dict(r) for r in rows]
+
+
+def league_clubs(conn: sqlite3.Connection, competition_id: str) -> list[dict]:
+    """그 리그 경기에 (홈 또는 원정으로, 어느 시즌이든) 나온 모든 구단, 이름순. game(competition_id, season) 인덱스를 쓴다."""
+    rows = conn.execute(
+        """SELECT c.club_id, c.name FROM club c
+           WHERE c.club_id IN (SELECT home_club_id FROM game WHERE competition_id = ?
+                               UNION SELECT away_club_id FROM game WHERE competition_id = ?)
+           ORDER BY c.name COLLATE NOCASE, c.club_id""",
+        (competition_id, competition_id))
+    return [dict(r) for r in rows]
+
+
+def club_ids_by_name(conn: sqlite3.Connection, text: str) -> list[int]:
+    """이름에 text 가 들어 있는 모든 구단 id (예전 club_name 부분 일치 필터와 같은 의미)."""
+    q = (text or "").strip()
+    if not q:
+        return []
+    rows = conn.execute("SELECT club_id FROM club WHERE name LIKE ? ESCAPE '\\'", (f"%{_like_escape(q)}%",))
+    return [r[0] for r in rows]
+
+
+def club_tenures(conn: sqlite3.Connection, player_ids, club_ids) -> dict[int, list[tuple]]:
+    """선수별로 club_ids 구단에서 보낸 기간 [(시작, 끝|None, 근거)] (시간순, ISO 날짜).
+
+    근거(source)는 'transfer'(이적 기록 기반) 또는 'appearance'(출전 기록만으로 추정). 수록 경기가 2012/13 부터라
+    출전 기반 기간은 실제보다 짧을 수 있어 화면에서 따로 표시한다.
+
+    - 구간은 club_ids 로 오는 이적에서 시작해 그 선수의 다음 이적일에 끝난다. 이후 이적이 없고 현재 구단이 club_ids 면
+      진행 중(끝 None), 아니면 그 구단 마지막 출전일.
+    - 이적 기록이 없는데 그 구단 출전이 있으면 첫/마지막 출전일을 쓴다(진행 중 표시는 하지 않는다). 그 구단에서 나가는 이적만 있으면 (None, 이적일).
+    페이지 한 장(선수 수십 명)분을 이적 조회 1번 + 출전 조회 1번 + 현재 구단 조회 1번으로 모은 뒤 파이썬에서 묶는다.
+    """
+    pids = [int(p) for p in player_ids]
+    cids = {int(c) for c in club_ids}
+    if not pids or not cids:
+        return {}
+    pid_json, cid_json = json.dumps(pids), json.dumps(sorted(cids))
+    transfers: dict[int, list[tuple]] = {}
+    for r in conn.execute(
+            """SELECT player_id, transfer_date, from_club_id, to_club_id FROM transfer
+               WHERE player_id IN (SELECT value FROM json_each(?))
+               ORDER BY player_id, transfer_date, transfer_id""", (pid_json,)):
+        transfers.setdefault(r[0], []).append((r[1], r[2], r[3]))
+    appearances = {r[0]: (r[1], r[2]) for r in conn.execute(
+        """SELECT player_id, MIN(date), MAX(date) FROM appearance
+           WHERE player_id IN (SELECT value FROM json_each(?)) AND club_id IN (SELECT value FROM json_each(?))
+           GROUP BY player_id""", (pid_json, cid_json))}
+    current = {r[0]: r[1] for r in conn.execute(
+        "SELECT player_id, current_club_id FROM player WHERE player_id IN (SELECT value FROM json_each(?))",
+        (pid_json,))}
+    out: dict[int, list[tuple]] = {}
+    for pid in pids:
+        moves = transfers.get(pid, [])
+        stints: list[tuple] = []
+        for i, (day, _frm, to) in enumerate(moves):
+            if to not in cids:
+                continue
+            later = [m[0] for m in moves[i + 1:] if m[0] > day]
+            if later:
+                end = later[0]
+            elif current.get(pid) in cids:
+                end = None                                    # 진행 중
+            else:
+                end = appearances.get(pid, (None, None))[1] or day   # 알 수 없으면 그 구단 마지막 출전일, 없으면 시작일
+            stints.append((day, end, "transfer"))
+        if not stints and pid in appearances:
+            lo, hi = appearances[pid]
+            stints.append((lo, hi, "appearance"))
+        if not stints:
+            left = [m[0] for m in moves if m[1] in cids]
+            if left:
+                stints.append((None, left[-1], "transfer"))
+        if stints:
+            out[pid] = stints
+    return out

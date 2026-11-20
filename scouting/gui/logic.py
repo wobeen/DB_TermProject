@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from datetime import date, timedelta
 from typing import Iterable, Mapping
 
@@ -378,6 +379,132 @@ def position_text(card: Mapping) -> str:
     if label == "-":
         label = card.get("position") or "-"
     return f"{label} ({card['sub_position']})" if card.get("sub_position") else label
+
+
+# --- 차트 hover: 가장 가까운 시장가치 점, 툴팁 문구, 재직 기간 -------------------------------
+def nearest_index(days: list[float], x: float) -> int | None:
+    """오름차순 날짜(일 단위 숫자) 목록에서 x 에 가장 가까운 점의 인덱스. 같은 거리면 앞쪽(더 이른 날짜)."""
+    if not days:
+        return None
+    i = bisect_left(days, x)
+    if i == 0:
+        return 0
+    if i == len(days):
+        return len(days) - 1
+    return i - 1 if x - days[i - 1] <= days[i] - x else i
+
+
+def tooltip_lines(point: Mapping) -> list[str]:
+    """시장가치 점 툴팁 세 줄: 날짜, 금액, 그 시점의 구단."""
+    return [point["date"], eur(point["market_value_eur"]), point.get("club_name") or "-"]
+
+
+def _months_between(start: date, end: date) -> int:
+    return (end.year - start.year) * 12 + end.month - start.month      # 화면에 보이는 '연-월' 기준
+
+
+def duration_text(start: str, end: str) -> str:
+    """'1개월 미만' / '11개월' / '1년' / '5년 6개월'."""
+    months = _months_between(date.fromisoformat(start), date.fromisoformat(end))
+    if months < 1:
+        return "1개월 미만"
+    years, rest = divmod(months, 12)
+    if not years:
+        return f"{rest}개월"
+    return f"{years}년" + (f" {rest}개월" if rest else "")
+
+
+def block_tooltip(club: str, start: str, end: str, cutoff: str) -> str:
+    """커리어 띠 블록 툴팁: 'Liverpool FC / 2025-07 ~ 현재 (1년)'."""
+    last = "현재" if end >= cutoff else end[:7]
+    return f"{club} / {start[:7]} ~ {last} ({duration_text(start, min(end, cutoff))})"
+
+
+# 출전 기록은 2012/13 시즌부터 있다. 출전 기록으로만 잡은 구간이 그 첫 시즌 안에서 시작하면
+# 실제로는 더 일찍 시작했을 수 있으므로 그때만 표시한다(이후 시즌에서 시작한 구간은 출전 기록이 정확하다).
+COVERAGE_FIRST_SEASON_END = "2013-07-01"
+TRUNCATED_NOTE = "2012/13 이전 미수록"
+
+
+def tenure_text(stint: tuple) -> str:
+    """한 구간의 글: '2022-07 ~ 2025-07', '2025-07 ~ 현재'.
+
+    근거가 출전 기록이고 수록 첫 시즌 안에서 시작하면 ' (2012/13 이전 미수록)' 을 붙인다.
+    """
+    start, end = stint[0], stint[1]
+    source = stint[2] if len(stint) > 2 else "transfer"
+    text = f"{(start[:7] if start else '시작 미상')} ~ {(end[:7] if end else '현재')}"
+    truncated = source == "appearance" and start is not None and start < COVERAGE_FIRST_SEASON_END
+    return f"{text} ({TRUNCATED_NOTE})" if truncated else text
+
+
+def stint_text(stints: Iterable[tuple], max_shown: int = 2) -> str:
+    """재직 기간 칸: 여러 번이면 ', ' 로 잇고 최근 2개만, 나머지는 ' 외 N회'. (시작, 끝[, 근거]) 튜플을 받는다."""
+    stints = list(stints)
+    if not stints:
+        return "-"
+    text = ", ".join(tenure_text(s) for s in stints[-max_shown:])
+    extra = len(stints) - max_shown
+    return f"{text} 외 {extra}회" if extra > 0 else text
+
+
+# --- 리그 -> 구단 고르기 --------------------------------------------------------------------
+LEAGUE_ALL = "전체"
+CLUB_ALL = "리그 전체"
+LEAGUE_SEPARATOR = "──── 그 외 리그 ────"
+
+
+def league_label(row: Mapping) -> str:
+    """'Premier League (England)'."""
+    name = competition_name(row.get("name"))
+    return f"{name} ({row['country_name']})" if row.get("country_name") else name
+
+
+def league_options(rows: Iterable[Mapping]) -> list[tuple[str, str | None]]:
+    """[(라벨, competition_id)]: '전체', 수록 14개 리그(이름순), 구분선, 나머지 리그(이름순). 구분선과 '전체'는 id 가 None."""
+    rows = list(rows)
+    covered = sorted((r for r in rows if r.get("is_covered")), key=league_label)
+    others = sorted((r for r in rows if not r.get("is_covered")), key=league_label)
+    out: list[tuple[str, str | None]] = [(LEAGUE_ALL, None)]
+    out += [(league_label(r), r["competition_id"]) for r in covered]
+    if covered and others:
+        out.append((LEAGUE_SEPARATOR, None))
+    out += [(league_label(r), r["competition_id"]) for r in others]
+    return out
+
+
+def club_options(clubs: Iterable[Mapping]) -> list[tuple[str, int | None]]:
+    """[(라벨, club_id)]: '리그 전체' 다음에 이름순 구단. 이름이 같은 구단은 id 를 붙여 구분한다."""
+    clubs = list(clubs)
+    seen: dict[str, int] = {}
+    for c in clubs:
+        seen[c["name"]] = seen.get(c["name"], 0) + 1
+    out: list[tuple[str, int | None]] = [(CLUB_ALL, None)]
+    for c in clubs:
+        label = c["name"] if seen[c["name"]] == 1 else f"{c['name']} (#{c['club_id']})"
+        out.append((label, c["club_id"]))
+    return out
+
+
+def club_filter(picked_club_id, league_club_ids, text: str | None) -> tuple[str | None, list[int] | None]:
+    """구단 조건 우선순위: 직접 고른 구단 > 이름 일부 > 리그 전체. (적용 방식, 구단 id 목록) — 이름 일부는 id 를 나중에 푼다."""
+    if picked_club_id is not None:
+        return "club", [int(picked_club_id)]
+    if text and text.strip():
+        return "text", None
+    if league_club_ids:
+        return "league", [int(i) for i in league_club_ids]
+    return None, None
+
+
+def club_filter_note(mode: str | None, *, club: str = "", league: str = "", text: str = "") -> str:
+    if mode == "club":
+        return f"적용: {club} (구단 선택)"
+    if mode == "text":
+        return f"적용: 이름에 '{text.strip()}' 포함 구단"
+    if mode == "league":
+        return f"적용: {league} 전체 구단"
+    return "적용 안 함"
 
 
 def identifier(value: object) -> str:

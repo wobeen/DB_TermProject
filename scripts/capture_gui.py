@@ -19,6 +19,7 @@ from scouting.gui.dpi import enable_dpi_awareness
 
 enable_dpi_awareness()
 
+from scouting.gui import logic
 from scouting.gui.app import ScoutingApp
 
 
@@ -85,17 +86,42 @@ def main():
         auto.close()
         app.search.name.set("")
 
-        # 4-3-3 의 오른쪽 윙(AMR) + 한국 국적
-        app.search.set_formation("4-3-3")
-        app.search.picker.toggle("AMR")
-        app.search.nat.set("Korea, South")
-        app.search.search()
-        wait(root, lambda: bool(app.search.tree.get_children()) and not app.search.pending)
+        # 프리미어리그(England) -> Liverpool FC, 4-3-3 의 ST: 재직 기간 열이 보인다
+        search = app.search
+        search.league.set("Premier League (England)")
+        search.on_league()
+        search.club_pick.set("Liverpool FC")
+        search.refresh_club_note()
+        search.set_formation("4-3-3")
+        search.picker.toggle("ST")
+        search.search()
+        wait(root, lambda: bool(search.tree.get_children()) and not search.pending)
         capture(root, out / "gui_search.png")
 
         app.open_career(91845)
         wait(root, lambda: app.career.card is not None)
         capture(root, out / "gui_career.png")
+
+        # 시장가치 선 위 hover 툴팁: Hugo Ekitiké, 2025년 무렵 (저장소에 커밋하지 않는다)
+        from datetime import datetime
+        import matplotlib.dates as mdates
+        from matplotlib.backend_bases import MouseEvent
+
+        app.open_career(709726)
+        wait(root, lambda: app.career.card is not None and app.career.card["player_id"] == 709726)
+        root.update()
+        time.sleep(.5)
+        career = app.career
+        when = mdates.date2num(datetime(2025, 6, 1))
+        px, py = career.value_ax.transData.transform((when, 0))
+        point = career.val_points[logic.nearest_index(career.val_nums, when)]
+        px, py = career.value_ax.transData.transform((mdates.date2num(datetime.fromisoformat(point["date"])),
+                                                      point["market_value_eur"] / 1e6))
+        career.last_motion = 0
+        career.on_motion(MouseEvent("motion_notify_event", career.strip_canvas, px, py))
+        grab(root, ROOT / "data" / "tasks" / "gui_hover.png")
+        print("hover tooltip:", career.hover_tip.get_text().replace("\n", " | "))
+        career.hide_hover()
 
         # 라벨 겹침 점검용 최악 사례: 유소년·임대 이동이 많은 Jan Oblak (저장소에 커밋하지 않는다)
         app.show_search()

@@ -79,8 +79,22 @@ class SearchView(ttk.Frame):
         self.nat.trace_add("write", lambda *_: self.nat_error.pack_forget())
         self.entries.append(self.nat_entry)
 
-        # 거쳐 간 구단: 제안은 도와 줄 뿐, 일부만 써도 검색된다
-        label("거쳐 간 구단 (이름 일부)")
+        # 거쳐 간 구단: 리그를 고른 뒤 구단을 고르거나, 구단 이름으로 찾는다. 직접 고른 구단이 이름 검색보다 우선한다.
+        label("거쳐 간 구단: 리그")
+        self.league = tk.StringVar(value=logic.LEAGUE_ALL)
+        self.league_items = logic.league_options(app.leagues)
+        self.league_box = ttk.Combobox(rail, textvariable=self.league, state="readonly",
+                                       values=[label_ for label_, _ in self.league_items])
+        self.league_box.pack(fill="x", padx=14)
+        self.league_box.bind("<<ComboboxSelected>>", lambda _e: self.on_league())
+        self.club_cache: dict[str, list[dict]] = {}
+        self.club_items: list[tuple[str, int | None]] = [(logic.CLUB_ALL, None)]
+        label("구단", pady=(6, 2))
+        self.club_pick = tk.StringVar(value=logic.CLUB_ALL)
+        self.club_box = ttk.Combobox(rail, textvariable=self.club_pick, state="disabled", values=[logic.CLUB_ALL])
+        self.club_box.pack(fill="x", padx=14)
+        self.club_box.bind("<<ComboboxSelected>>", lambda _e: self.refresh_club_note())
+        label("구단 이름으로 찾기", pady=(6, 2))
         self.club_entry = ttk.Entry(rail, textvariable=self.club)
         self.club_entry.pack(fill="x", padx=14)
         self.club_auto = Autocomplete(
@@ -88,6 +102,10 @@ class SearchView(ttk.Frame):
             job=lambda text: (lambda conn: players.suggest_clubs(conn, text, limit=8)),
             on_accept=lambda item: self.club.set(item["name"]))
         self.entries.append(self.club_entry)
+        self.club_note = ttk.Label(rail, text="", style="RailNote.TLabel")
+        self.club_note.pack(anchor="w", padx=14)
+        self.club.trace_add("write", lambda *_: self.refresh_club_note())
+        self.refresh_club_note()
 
         label("나이 범위 (기준일 만 나이)")
         ages = ttk.Frame(rail, style="Rail.TFrame")
@@ -115,10 +133,14 @@ class SearchView(ttk.Frame):
         self.pager = ttk.Label(top, text="", style="Muted.TLabel")
         self.pager.pack(side="right")
         columns = (
-            ("name", "이름", 170, True), ("pos", "포지션", 100), ("nat", "국적", 120, True),
-            ("age", "나이", 50), ("club", "현재 구단", 170, True), ("value", "현재 가치", 90), ("peak", "최고 가치", 90),
+            ("name", "이름", 120, True), ("pos", "포지션", 76), ("nat", "국적", 84, True),
+            ("age", "나이", 44), ("club", "현재 구단", 150, True), ("tenure", "재직 기간", 300),
+            ("value", "현재 가치", 70), ("peak", "최고 가치", 70),
         )
-        self.tree = make_tree(right, columns, height=18, left=("name", "pos", "nat", "club"))
+        self.tree = make_tree(right, columns, height=18, left=("name", "pos", "nat", "club", "tenure"))
+        self.all_columns = tuple(c[0] for c in columns)
+        self.base_widths = {c[0]: round(c[2] * app.dpi / 96.0) for c in columns}
+        self.show_tenure(False)
         self.tree.tag_configure("zebra1", background=theme.ZEBRA)
         self.tree.bind("<Double-1>", lambda _e: self.open_selected())
         self.tree.bind("<Return>", lambda _e: self.open_selected())
@@ -156,12 +178,52 @@ class SearchView(ttk.Frame):
         self.picked_label.configure(text="선택한 포지션: " + (", ".join(codes) if codes else "없음"))
         self.clear_btn.state(["!disabled"] if codes else ["disabled"])
 
+    def show_tenure(self, visible: bool):
+        cols = self.all_columns if visible else tuple(c for c in self.all_columns if c != "tenure")
+        self.tree.configure(displaycolumns=cols)
+        for col in cols:        # 열을 보이거나 숨길 때 늘어난 너비를 처음 값으로 되돌려 남는 폭만 늘어나는 열에 나눠 준다
+            self.tree.column(col, width=self.base_widths[col])
+
+    def league_id(self):
+        return dict(self.league_items).get(self.league.get())
+
+    def league_clubs(self, league_id):
+        if league_id not in self.club_cache:
+            self.club_cache[league_id] = players.league_clubs(self.app.conn, league_id)    # 1~2 ms, 리그별로 한 번만
+        return self.club_cache[league_id]
+
+    def on_league(self):
+        league_id = self.league_id()
+        self.club_pick.set(logic.CLUB_ALL)
+        if league_id is None:
+            self.club_items = [(logic.CLUB_ALL, None)]
+            self.club_box.configure(state="disabled", values=[logic.CLUB_ALL])
+        else:
+            self.club_items = logic.club_options(self.league_clubs(league_id))
+            self.club_box.configure(state="readonly", values=[label_ for label_, _ in self.club_items])
+        self.refresh_club_note()
+
+    def club_filter(self):
+        """(적용 방식, 구단 id 목록|None, 이름 일부): 직접 고른 구단 > 이름 일부 > 리그 전체."""
+        league_id = self.league_id()
+        league_ids = [c["club_id"] for c in self.league_clubs(league_id)] if league_id else None
+        picked = dict(self.club_items).get(self.club_pick.get()) if league_id else None
+        mode, ids = logic.club_filter(picked, league_ids, self.club.get())
+        return mode, ids, (self.club.get().strip() or None)
+
+    def refresh_club_note(self):
+        mode, _ids, text = self.club_filter()
+        self.club_note.configure(text=logic.club_filter_note(
+            mode, club=self.club_pick.get(), league=self.league.get(), text=text or ""))
+
     def refresh_nav(self):
         self.forward_btn.configure(state="normal" if self.app.career.player_id else "disabled")
 
     def reset(self):
         for var in (self.name, self.nat, self.club, self.min_age, self.max_age):
             var.set("")
+        self.league.set(logic.LEAGUE_ALL)
+        self.on_league()
         self.set_formation("")
 
     def filters(self):
@@ -176,10 +238,13 @@ class SearchView(ttk.Frame):
         hi = logic.parse_int(self.max_age.get(), "최대 나이", 1, 100)
         if lo is not None and hi is not None and lo > hi:
             raise ValueError("나이: 최소가 최대보다 클 수 없습니다.")
+        mode, club_ids, club_text = self.club_filter()
         return {
             "name": self.name.get().strip() or None,
             "nationality": nat,
-            "club_name": self.club.get().strip() or None,
+            "club_mode": mode,
+            "club_ids": club_ids,
+            "club_text": club_text if mode == "text" else None,
             "min_age": lo,
             "max_age": hi,
             "sub_positions": logic.sub_positions_for(self.picker.codes()) or None,
@@ -201,12 +266,21 @@ class SearchView(ttk.Frame):
         self.pending = True
 
         def job(connection):
-            total = players.count_players_ext(connection, **filters)
-            rows = players.search_players_ext(connection, **filters, limit=PAGE_SIZE, offset=page * PAGE_SIZE)
-            return total, rows
+            kw = {k: v for k, v in filters.items() if k not in ("club_mode", "club_ids", "club_text")}
+            ids = filters["club_ids"]
+            if ids is None and filters["club_text"]:
+                ids = players.club_ids_by_name(connection, filters["club_text"])    # 한 번에 풀어 id 로 거른다
+                if not ids:
+                    return 0, [], {}, None
+            total = players.count_players_ext(connection, club_ids=ids, **kw)
+            rows = players.search_players_ext(connection, club_ids=ids, **kw, limit=PAGE_SIZE,
+                                              offset=page * PAGE_SIZE)
+            tenures = players.club_tenures(connection, [r["player_id"] for r in rows], ids) if ids else {}
+            return total, rows, tenures, ids
 
         def done(data):
-            self.total, rows = data
+            self.total, rows, tenures, club_ids = data
+            self.show_tenure(bool(club_ids))
             self.page = page
             self.last_filters = filters
             self.pending = False
@@ -218,7 +292,8 @@ class SearchView(ttk.Frame):
                     row["name"], logic.position_label(row["pos_group"], row["sub_position"]),
                     row["country_of_citizenship"] or "-",
                     str("-" if row["age"] is None else row["age"]) + "  ",
-                    row["current_club_name"] or "-", logic.eur(row["latest_value_eur"]) + "  ",
+                    row["current_club_name"] or "-", logic.stint_text(tenures.get(row["player_id"], [])),
+                    logic.eur(row["latest_value_eur"]) + "  ",
                     logic.eur(row["peak_value_eur"]) + "  ",
                 ))
             pages = max(1, -(-self.total // PAGE_SIZE))

@@ -33,6 +33,7 @@ def build_career(path):
     player 302 'Other Guy'(Brazil, MF): Alpha 에서 1경기. 303 'Never Played'(Korea, South): Beta 로 이적만 있음."""
     conn = new_db(path)
     add_snapshot(conn, "current", "2026-07-07")
+    conn.execute("UPDATE competition SET country_name = 'England' WHERE competition_id = 'GB1'")
     conn.execute("INSERT INTO competition (competition_id, name, type, is_uefa_club) VALUES "
                  "('CL','uefa-champions-league','international_cup',1)")
     conn.execute("INSERT INTO competition (competition_id, name, type) VALUES "
