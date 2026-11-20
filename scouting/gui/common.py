@@ -18,15 +18,22 @@ def clear_tree(tree: ttk.Treeview) -> None:
     tree.delete(*tree.get_children())
 
 
-def make_tree(parent, columns, *, height=12, horizontal=False, left=()) -> ttk.Treeview:
+def make_tree(parent, columns, *, height=12, horizontal=False, left=(), tree_column=None,
+              style=None) -> ttk.Treeview:
+    """tree_column=(label, width) 를 주면 #0 열을 계층 표시용으로 쓴다."""
     frame = ttk.Frame(parent)
     frame.pack(fill="both", expand=True, padx=8, pady=6)
     keys = [column[0] for column in columns]
-    tree = ttk.Treeview(frame, columns=keys, show="headings", height=height)
+    options = {"style": style} if style else {}
+    tree = ttk.Treeview(frame, columns=keys, show="tree headings" if tree_column else "headings",
+                        height=height, **options)
     try:
         width_scale = float(parent.winfo_fpixels("1i")) / 96.0
     except Exception:
         width_scale = 1.0
+    if tree_column:
+        tree.heading("#0", text=tree_column[0], anchor="w")
+        tree.column("#0", width=round(tree_column[1] * width_scale), anchor="w", stretch=True)
     text_columns = set(left)
     centered_columns = set()
     for key, label, width, *stretch in columns:

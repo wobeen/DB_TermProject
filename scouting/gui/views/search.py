@@ -17,6 +17,7 @@ class SearchView(ttk.Frame):
         self.page = 0
         self.total = 0
         self.last_filters: dict | None = None
+        self.pending = False
 
         panel = ttk.LabelFrame(self, text="검색 조건")
         panel.pack(side="left", fill="y", padx=(10, 4), pady=8)
@@ -71,13 +72,13 @@ class SearchView(ttk.Frame):
         self.forward_btn = ttk.Button(foot, text="커리어로 ▶", command=lambda: app.show_career())
         self.forward_btn.pack(side="right", padx=(4, 8))
         ttk.Button(foot, text="커리어 보기", command=self.open_selected).pack(side="right", padx=4)
-        self.next = ttk.Button(foot, text="다음", command=lambda: self.search(self.page + 1), state="disabled")
+        self.next = ttk.Button(foot, text="다음", command=lambda: self.search(self.page + 1, use_last=True), state="disabled")
         self.next.pack(side="right", padx=4)
-        self.prev = ttk.Button(foot, text="이전", command=lambda: self.search(self.page - 1), state="disabled")
+        self.prev = ttk.Button(foot, text="이전", command=lambda: self.search(self.page - 1, use_last=True), state="disabled")
         self.prev.pack(side="right")
 
     def refresh_nav(self):
-        self.forward_btn.configure(state="normal" if self.app.history else "disabled")
+        self.forward_btn.configure(state="normal" if self.app.career.player_id else "disabled")
 
     def reset(self):
         for var in (self.name, self.pos, self.nat, self.club, self.min_age, self.max_age):
@@ -100,14 +101,15 @@ class SearchView(ttk.Frame):
             "max_age": hi,
         }
 
-    def search(self, page=0):
+    def search(self, page=0, *, use_last=False, open_index=None):
+        """use_last: 페이지 이동처럼 마지막으로 검색한 조건을 그대로 쓴다. open_index: 로드 후 그 위치의 선수를 연다."""
         try:
-            # 페이지 이동은 마지막으로 검색한 조건을 유지한다.
-            filters = self.filters() if page == 0 or self.last_filters is None else self.last_filters
+            filters = self.last_filters if (use_last and self.last_filters is not None) else self.filters()
         except ValueError as exc:
             self.app.error(exc)
             return
         page = max(0, page)
+        self.pending = True
 
         def job(connection):
             total = players.count_players_ext(connection, **filters)
@@ -118,6 +120,9 @@ class SearchView(ttk.Frame):
             self.total, rows = data
             self.page = page
             self.last_filters = filters
+            self.pending = False
+            if not use_last:                    # 새 검색이면 열려 있던 커리어는 더 이상 이 목록의 일부가 아니다
+                self.app.career.index = None
             clear_tree(self.tree)
             for row in rows:
                 self.tree.insert("", "end", iid=str(row["player_id"]), values=(
@@ -132,10 +137,29 @@ class SearchView(ttk.Frame):
             self.next.configure(state="normal" if (page + 1) * PAGE_SIZE < self.total else "disabled")
             children = self.tree.get_children()
             if children:
-                self.tree.selection_set(children[0])
-                self.tree.focus(children[0])
+                self.select_row(0)
+            if open_index is not None and children:
+                self.open_index(open_index)
 
-        self.app.jobs.submit("선수 검색", job, done, button=self.search_btn)
+        self.app.jobs.submit("선수 검색", job, done, button=self.search_btn,
+                             on_error=lambda _e: setattr(self, "pending", False))
+
+    def select_row(self, row):
+        iid = self.tree.get_children()[row]
+        self.tree.selection_set(iid)
+        self.tree.focus(iid)
+        self.tree.see(iid)
+        return int(iid)
+
+    def open_index(self, index):
+        """검색 결과 전체에서 index(0-based) 번째 선수를 연다. 다른 페이지면 그 페이지를 먼저 불러온다."""
+        if self.pending or not 0 <= index < self.total:
+            return
+        page, row = divmod(index, PAGE_SIZE)
+        if page != self.page:
+            self.search(page, use_last=True, open_index=index)
+            return
+        self.app.open_career(self.select_row(row), index)
 
     def selected_pid(self):
         selection = self.tree.selection()
@@ -146,4 +170,4 @@ class SearchView(ttk.Frame):
         if player_id is None:
             self.app.error(ValueError("선수를 선택해 주세요."))
             return
-        self.app.open_career(player_id)
+        self.app.open_career(player_id, self.page * PAGE_SIZE + self.tree.index(self.tree.selection()[0]))

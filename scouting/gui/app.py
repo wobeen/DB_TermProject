@@ -57,8 +57,6 @@ class ScoutingApp:
         self.career = CareerView(self, self.stage)
         for view in (self.search, self.career):
             view.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self.history: list[int] = []     # 연 순서대로의 선수 ID
-        self.pos = -1                    # history 안의 현재 위치
         self.jobs = BackgroundJobs(root, self.db_path, self.set_status)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.show_search()
@@ -77,6 +75,7 @@ class ScoutingApp:
         pad = max(3, round(2 * display_scale))
         style.configure("Treeview", rowheight=tree_font.metrics("linespace") + pad * 2)
         style.configure("Treeview.Heading", padding=(round(4 * display_scale), pad), font=heading_font)
+        style.configure("Season.Treeview", rowheight=round(tree_font.metrics("linespace") * 1.4))
         self.tree_font = tree_font
 
     # --- navigation -------------------------------------------------------
@@ -88,21 +87,10 @@ class ScoutingApp:
         self.career.tkraise()
         self.career.refresh_nav()
 
-    def open_career(self, player_id: int):
-        """검색 결과에서 선수를 연다. 뒤로 간 상태였다면 앞쪽 기록은 버린다."""
-        del self.history[self.pos + 1:]
-        if not self.history or self.history[-1] != int(player_id):
-            self.history.append(int(player_id))
-        self.pos = len(self.history) - 1
-        self.career.load(self.history[self.pos])
+    def open_career(self, player_id: int, index: int | None = None):
+        """index: 검색 결과 안의 위치(이전/다음 선수용). 검색 없이 열면 None."""
+        self.career.load(player_id, index)
         self.show_career()
-
-    def step(self, delta: int):
-        target = self.pos + delta
-        if 0 <= target < len(self.history):
-            self.pos = target
-            self.career.load(self.history[target])
-            self.show_career()
 
     # --- misc ---------------------------------------------------------------
     def set_status(self, text):

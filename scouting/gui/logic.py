@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Iterable, Mapping
 
 # 화면 라벨 -> DB pos_group (빈 값 = 전체)
@@ -97,17 +98,34 @@ def transfer_rows(rows: Iterable[Mapping]) -> list[tuple]:
     return out
 
 
-def season_rows(rows: Iterable[Mapping]) -> list[tuple[tuple, bool]]:
-    """career_seasons 결과 -> [(표 행, 소계 여부)]."""
-    out = []
+def season_groups(rows: Iterable[Mapping]) -> list[dict]:
+    """career_seasons 결과 -> 시즌·구단별 부모 행(합계)과 대회별 자식 행.
+
+    값 순서: 출전, 선발, 분, 골, 도움, 경고, 퇴장. 선발은 라인업 데이터가 없으면 '-'.
+    """
+    keys = ("apps", "starts", "minutes", "goals", "assists", "yellow", "red")
+    groups: dict[tuple, dict] = {}
     for r in rows:
-        sub = bool(r.get("is_subtotal"))
-        starts = "-" if r.get("starts") is None else r["starts"]
-        out.append(((season_label(r["season"]),
-                     "소계" if sub else r["club_name"],
-                     "" if sub else competition_name(r["competition_slug"]),
-                     r["apps"], starts, r["minutes"], r["goals"], r["assists"], r["yellow"], r["red"]), sub))
+        if r.get("is_subtotal"):
+            continue
+        g = groups.setdefault((r["season"], r["club_id"]), {
+            "label": f"{season_label(r['season'])} · {r['club_name']}", "children": [], "src": []})
+        g["children"].append((competition_name(r["competition_slug"]), tuple(_cell(r[k]) for k in keys)))
+        g["src"].append(r)
+    out = []
+    for g in groups.values():
+        src = g.pop("src")
+        totals = []
+        for k in keys:
+            vals = [r[k] for r in src if r[k] is not None]
+            totals.append(_cell(sum(vals) if vals else None))
+        g["values"] = tuple(totals)
+        out.append(g)
     return out
+
+
+def _cell(value: object) -> object:
+    return "-" if value is None else value
 
 
 def season_chart_series(rows: Iterable[Mapping]) -> dict:
@@ -129,10 +147,60 @@ def valuation_series(rows: Iterable[Mapping]) -> dict:
     return {"dates": dates, "values": values, "peak": peak}
 
 
-def club_moves(transfers: Iterable[Mapping]) -> list[tuple[str, str]]:
-    """차트 마커용: 구단이 바뀐 이적의 (날짜, 도착 구단). 도착 구단이 없는 행은 제외."""
-    return [(t["transfer_date"], t["to_club"]) for t in transfers
+def club_moves(transfers: Iterable[Mapping]) -> list[tuple[str, str, float | None]]:
+    """구단이 바뀐 이적의 (날짜, 도착 구단, 이적료). 도착 구단이 없는 행은 제외."""
+    return [(t["transfer_date"], t["to_club"], t.get("fee_eur")) for t in transfers
             if t.get("to_club") and t.get("from_club_id") != t.get("to_club_id")]
+
+
+def merge_close_moves(moves: Iterable[tuple], min_days: int = 180) -> list[tuple]:
+    """앞 이적과 min_days 미만 간격이면 하나로 합친다(임대 후 복귀 등). 마지막 이적의 날짜·구단을 남기고,
+    이적료는 합쳐진 이적 중 가장 큰 값을 가져간다(우선순위 판단용)."""
+    out: list[tuple] = []
+    for move in sorted(moves, key=lambda m: m[0]):
+        if out and (date.fromisoformat(move[0]) - date.fromisoformat(out[-1][0])).days < min_days:
+            fees = [f for f in (out[-1][2], move[2]) if f is not None]
+            out[-1] = (move[0], move[1], max(fees) if fees else None)
+        else:
+            out.append(move)
+    return out
+
+
+def shorten(name: str, limit: int = 14) -> str:
+    return name if len(name) <= limit else name[: limit - 1].rstrip() + "…"
+
+
+def chart_moves(transfers: Iterable[Mapping], lo: str, hi: str) -> list[tuple[str, str, float | None]]:
+    """차트 마커: 시장가치 기간 [lo, hi] 안의 구단 이동만, 가까운 이동은 병합, 이름은 줄여서."""
+    inside = [m for m in club_moves(transfers) if lo <= m[0] <= hi]
+    return [(d, shorten(c), fee) for d, c, fee in merge_close_moves(inside)]
+
+
+def label_priority(moves: Iterable[tuple]) -> list[int]:
+    """라벨 배치 우선순위(인덱스): 이적료가 있는 이적(큰 순) → 나머지 최근 순."""
+    moves = list(moves)
+    paid = [i for i, m in enumerate(moves) if (m[2] or 0) > 0]
+    paid.sort(key=lambda i: moves[i][0], reverse=True)       # 동률이면 최근 것이 먼저
+    paid.sort(key=lambda i: -moves[i][2])
+    rest = sorted((i for i in range(len(moves)) if i not in paid), key=lambda i: moves[i][0], reverse=True)
+    return paid + rest
+
+
+def assign_label_rows(spans: Iterable[tuple[float, float]], rows: int = 3, pad: float = 4.0,
+                      order: Iterable[int] | None = None) -> list[int | None]:
+    """x 구간(픽셀)에 라벨 줄을 배정한다. order(우선순위) 순으로 가장 위 줄부터 시도하고,
+    같은 줄의 이미 배정된 라벨과 겹치면 다음 줄, 모두 겹치면 None(생략). 결과는 spans 와 같은 순서."""
+    spans = list(spans)
+    taken: list[list[tuple[float, float]]] = [[] for _ in range(rows)]
+    out: list[int | None] = [None] * len(spans)
+    for i in (list(order) if order is not None else range(len(spans))):
+        x0, x1 = spans[i]
+        for r in range(rows):
+            if all(x0 >= e + pad or x1 <= s0 - pad for s0, e in taken[r]):
+                taken[r].append((x0, x1))
+                out[i] = r
+                break
+    return out
 
 
 def identifier(value: object) -> str:

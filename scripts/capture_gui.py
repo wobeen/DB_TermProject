@@ -57,6 +57,7 @@ def main():
         shutil.copy2(source, copied)
         root = tk.Tk()
         app = ScoutingApp(root, copied)
+        root.geometry("+0+0")   # 화면 밖으로 밀려 아래쪽이 검게 캡처되는 것을 막는다
         root.deiconify()
         root.attributes("-topmost", True)
         root.lift()
@@ -72,6 +73,18 @@ def main():
         app.open_career(91845)
         wait(root, lambda: app.career.card is not None and "완료" in app.status_var.get())
         capture(root, out / "gui_career.png")
+
+        # 라벨 겹침 점검용 최악 사례: 유소년·임대 이동이 많은 Jan Oblak (저장소에 커밋하지 않는다)
+        app.show_search()
+        app.search.reset()
+        app.search.name.set("Oblak")
+        app.search.search()
+        wait(root, lambda: bool(app.search.tree.get_children()) and "완료" in app.status_var.get())
+        app.search.select_row(0)
+        app.search.open_selected()
+        wait(root, lambda: app.career.card is not None and "Oblak" in app.career.card["name"])
+        app.career.toggle_all()
+        capture(root, ROOT / "data" / "tasks" / "gui_oblak.png")
         app.close()
 
 
