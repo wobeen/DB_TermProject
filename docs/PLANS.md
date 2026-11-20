@@ -181,7 +181,8 @@ DB_TermProject/
 └─ report/    report.md, figures/, report.pdf
 ```
 
-## 다음 결정 사항
-1. 기획안 선택(추천: E. 종목은 축구 기본, 대안은 야구 Lahman DB)
-2. DBMS 선택: SQLite(재현 쉬움) 또는 MySQL(동시성 실험 강함)
-3. 인터페이스 선택: CLI(예시와 동일하고 검증이 쉬움) 또는 GUI(Streamlit/Tkinter)
+## 확정 사항
+1. 기획안 E(축구 유망주 스카우팅), 종목은 축구
+2. DBMS는 SQLite. 동시성 실험이 없어 단일 파일의 재현성을 택했다
+3. 인터페이스는 한국어 CLI, 보고서는 영어
+4. 실제 진행: Codex 사용량 한도 때문에 Pipeline·App·Bench·Report·CrossReview 모두 Claude 워커로 수행했다. 상세 규칙은 [CONTRACT.md](./CONTRACT.md)
