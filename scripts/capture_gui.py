@@ -67,11 +67,11 @@ def main():
         app.search.nat.set("Korea, South")
         app.search.pos.set("공격수")
         app.search.search()
-        wait(root, lambda: bool(app.search.tree.get_children()) and "완료" in app.status_var.get())
+        wait(root, lambda: bool(app.search.tree.get_children()) and not app.search.pending)
         capture(root, out / "gui_search.png")
 
         app.open_career(91845)
-        wait(root, lambda: app.career.card is not None and "완료" in app.status_var.get())
+        wait(root, lambda: app.career.card is not None)
         capture(root, out / "gui_career.png")
 
         # 라벨 겹침 점검용 최악 사례: 유소년·임대 이동이 많은 Jan Oblak (저장소에 커밋하지 않는다)
@@ -79,7 +79,8 @@ def main():
         app.search.reset()
         app.search.name.set("Oblak")
         app.search.search()
-        wait(root, lambda: bool(app.search.tree.get_children()) and "완료" in app.status_var.get())
+        wait(root, lambda: bool(app.search.tree.get_children()) and not app.search.pending
+             and (app.search.last_filters or {}).get("name") == "Oblak")
         app.search.select_row(0)
         app.search.open_selected()
         wait(root, lambda: app.career.card is not None and "Oblak" in app.career.card["name"])

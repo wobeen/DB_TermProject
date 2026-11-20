@@ -25,13 +25,13 @@ def test_fee_and_eur_formatting():
 
 def test_banner_text():
     text = logic.banner_text({"game": "2026-07-06", "valuation": "2026-06-12", "season": 2025})
-    assert text == "데이터 기준: 경기 2026-07-06 · 시장가치 2026-06-12 (2025/26 시즌까지, 이후 이적 미반영)"
+    assert text == "데이터 기준 경기 2026-07-06, 시장가치 2026-06-12 (2025/26 시즌까지, 이후 이적 미반영)"
 
 
 def test_coverage_note():
     note = logic.coverage_note({"covered_leagues": 14, "types": ["domestic_league", "national_team_competition"],
                                 "has_uefa": True})
-    assert note == "유럽 1부 14개 리그·UEFA 대회·주요 국가대항전만 수록. 그 외 리그(MLS, K리그 등) 기록은 없음."
+    assert note == "유럽 1부 14개 리그, UEFA 대회, 주요 국가대항전만 수록. 그 외 리그(MLS, K리그 등) 기록은 없음."
     assert "국내컵" in logic.coverage_note({"covered_leagues": 14, "types": ["domestic_cup"], "has_uefa": False})
 
 
@@ -52,7 +52,7 @@ def test_rows_and_series():
          "starts": None, "minutes": 50, "goals": 0, "assists": 0, "yellow": 0, "red": 0, "is_subtotal": 0},
         {"season": 2024, "club_id": None, "club_name": None, "competition_slug": None, "apps": 6,
          "starts": 1, "minutes": 340, "goals": 1, "assists": 1, "yellow": 1, "red": 0, "is_subtotal": 1}])
-    assert [g["label"] for g in groups] == ["2024/25 · A", "2024/25 · B"]      # 구단별 부모, 소계 행은 무시
+    assert [(g["season"], g["club"]) for g in groups] == [("2024/25", "A"), ("2024/25", "B")]   # 구단별 부모, 소계 행은 무시
     assert groups[0]["values"] == (4, 1, 290, 1, 1, 1, 0)
     assert groups[0]["children"][0] == ("Premier League", (3, "-", 200, 1, 0, 0, 0))
     assert groups[0]["children"][1][0] == "FA Cup" and len(groups[0]["children"]) == 2
@@ -80,44 +80,81 @@ def test_input_and_labels():
     assert logic.identifier(1234567) == "1234567"
 
 
-def test_chart_move_merge_shorten_and_skip_rules():
-    # 180일 미만 간격은 하나로: 임대 후 복귀는 마지막 도착 구단만 남는다
-    moves = [("2010-01-01", "A"), ("2010-03-01", "B"), ("2010-05-01", "A"), ("2012-01-01", "C")]
-    moves = [(d, c, None) for d, c in moves]
-    assert logic.merge_close_moves(moves) == [("2010-05-01", "A", None), ("2012-01-01", "C", None)]
-    assert len(logic.merge_close_moves([("2010-01-01", "A", None), ("2010-06-30", "B", None)])) == 2  # 180일
-    assert logic.shorten("SL Benfica") == "SL Benfica"
-    assert logic.shorten("Wolverhampton Wanderers") == "Wolverhampton…" and len(logic.shorten("Wolverhampton Wanderers")) == 14
-    transfers = [{"transfer_date": d, "from_club_id": f, "to_club_id": t, "to_club": c} for d, f, t, c in (
-        ("2005-01-01", 1, 2, "Early"),                    # 범위 밖
-        ("2010-01-01", 2, 3, "Loan Club"), ("2010-03-01", 3, 2, "Home Club With Long Name"),
-        ("2012-01-01", 2, 4, "Last"), ("2020-01-01", 4, 5, "Future"))]
-    assert logic.chart_moves(transfers, "2008-01-01", "2015-01-01") == [
-        ("2010-03-01", "Home Club Wit…", None), ("2012-01-01", "Last", None)]
-    # 라벨 줄 배치: 겹치면 다음 줄, 3줄 모두 겹치면 생략, 줄이 비면 재사용
-    spans = [(0, 50), (10, 60), (20, 70), (30, 80), (100, 150)]
-    assert logic.assign_label_rows(spans, rows=3, pad=4) == [0, 1, 2, None, 0]
-    assert logic.assign_label_rows([(0, 50), (54, 90)], rows=1, pad=4) == [0, 0]
-    assert logic.assign_label_rows([(0, 50), (52, 90)], rows=1, pad=4) == [0, None]
+def _t(tid, date, to_id, to_club, fee=None):
+    return {"transfer_id": tid, "transfer_date": date, "to_club_id": to_id, "to_club": to_club, "fee_eur": fee}
 
 
-def test_oblak_like_labels_keep_the_paid_move():
-    rows = [("2010-01-04", "SL Benfica", 4_000_000.0), ("2010-01-05", "SC Beira-Mar", 0.0),
-            ("2010-06-30", "SL Benfica", 0.0), ("2011-01-04", "SC Olhanense", 0.0),
-            ("2011-06-30", "SL Benfica", 0.0), ("2011-09-09", "União de Leiria", 0.0),
-            ("2012-06-30", "SL Benfica", 0.0), ("2012-09-09", "Rio Ave FC", 0.0),
-            ("2013-06-30", "SL Benfica", 0.0), ("2014-07-16", "Atlético de Madrid", 16_000_000.0)]
-    transfers = [{"transfer_date": d, "to_club": c, "fee_eur": f, "from_club_id": i, "to_club_id": i + 1}
-                 for i, (d, c, f) in enumerate(rows)]
-    moves = logic.chart_moves(transfers, "2010-01-01", "2015-01-01")
-    atletico = next(i for i, m in enumerate(moves) if m[1].startswith("Atl"))
-    order = logic.label_priority(moves)
-    assert moves[order[0]][1].startswith("Atl")                 # 이적료 큰 순이 먼저
-    assert moves[order[1]][2] == 4_000_000.0                    # 그다음 이적료가 있는 이적(임대와 병합돼도 이적료 유지)
-    assert [moves[i][0] for i in order[2:]] == sorted((m[0] for m in moves if not m[2]), reverse=True)
-    # 시간 순으로는 앞쪽 라벨이 3줄을 모두 차지해 Atlético 가 밀리는 좁은 간격 (모두 서로 겹침)
-    spans = [(100 + 5 * i, 190 + 5 * i) for i in range(len(moves))]
-    assert logic.assign_label_rows(spans, rows=3)[atletico] is None
-    placed = logic.assign_label_rows(spans, rows=3, order=order)
-    assert placed[atletico] == 0                                # 우선순위 배치에서는 유지
-    assert sum(r is not None for r in placed) == 3              # 나머지는 겹치면 생략
+def test_tenures_cover_first_transfer_to_cutoff_without_gaps_or_overlaps():
+    transfers = [_t(3, "2010-07-01", 3, "C", 5_000_000.0), _t(1, "2005-01-01", 1, "A"), _t(2, "2008-01-01", 2, "B"),
+                 _t(4, "2013-07-01", 1, "A", 0.0),             # A 로 복귀
+                 _t(5, "2030-01-01", 9, "Future", 1.0)]         # 기준일 이후(예정)는 제외
+    blocks = logic.tenures(transfers, "2026-07-06")
+    assert [b["club"] for b in blocks] == ["A", "B", "C", "A"]
+    assert blocks[0]["start"] == "2005-01-01" and blocks[-1]["end"] == "2026-07-06"
+    for prev, nxt in zip(blocks, blocks[1:]):
+        assert prev["end"] == nxt["start"]                      # 빈틈도 겹침도 없다
+    assert all(b["start"] < b["end"] for b in blocks)
+    assert blocks[2]["fee"] == 5_000_000.0
+    # 처음 등장한 구단 순서로 0,1,0 ... 복귀한 A 는 첫 재직 때 색을 유지
+    assert [b["color"] for b in blocks] == [0, 1, 0, 0]
+    assert blocks[3]["color"] == blocks[0]["color"]
+
+
+def test_tenures_edge_cases():
+    assert logic.tenures([], "2026-01-01") == []
+    # 같은 날 두 이적은 마지막 도착지만, 도착 구단이 없는 행은 무시, 기준일 당일 시작은 길이 0 이라 제외
+    rows = [_t(1, "2020-01-01", 1, "A"), _t(2, "2020-01-01", 2, "B"), {"transfer_id": 3,
+            "transfer_date": "2021-01-01", "to_club_id": None, "to_club": None},
+            _t(4, "2026-01-01", 3, "C")]
+    blocks = logic.tenures(rows, "2026-01-01")
+    assert [(b["club"], b["start"], b["end"]) for b in blocks] == [("B", "2020-01-01", "2026-01-01")]
+
+
+def test_fit_label_fits_truncates_or_drops():
+    def measure(text):
+        return 10 * len(text)
+
+    assert logic.fit_label("Arsenal", 100, measure) == "Arsenal"
+    assert logic.fit_label("Tottenham Hotspur", 80, measure) == "Tottenh…"      # 8글자(… 포함)까지
+    assert logic.fit_label("Tottenham Hotspur", 30, measure) == "To…"           # 3글자까지는 허용
+    assert logic.fit_label("Tottenham Hotspur", 29, measure) is None            # 3글자도 안 들어가면 라벨 없음
+    assert logic.fit_label("", 100, measure) is None
+
+
+def test_position_and_notes():
+    assert logic.position_text({"pos_group": "FW", "sub_position": "Left Winger"}) == "공격수 (Left Winger)"
+    assert logic.position_text({"pos_group": "GK", "sub_position": None}) == "골키퍼"
+    assert "14개" in logic.no_league_note({"covered_leagues": 14})
+    assert logic.EMPTY_SEARCH.startswith("조건에 맞는 선수가 없습니다.")
+
+
+def test_shorten_club_for_strip():
+    cases = {
+        "Los Angeles Football Club": "Los Angeles", "Bayer 04 Leverkusen": "Leverkusen",
+        "Hamburger SV": "Hamburger", "SL Benfica": "Benfica", "FC Barcelona": "Barcelona",
+        "Real Madrid Club de Fútbol": "Real Madrid", "Juventus Football Club": "Juventus",
+        "Hannover 96": "Hannover", "1. FC Köln": "Köln", "SC Beira-Mar": "Beira-Mar",
+        "Atlético de Madrid": "Atlético de Madrid", "Tottenham Hotspur": "Tottenham Hotspur",
+        "Hamburger SV II": "Hamburger SV II", "FC": "FC", "Club Brugge": "Brugge",
+    }
+    for full, short in cases.items():
+        assert logic.shorten_club(full) == short, full
+
+
+def test_youth_collapse_and_strip_start():
+    blocks = logic.tenures([_t(1, "2005-01-01", 1, "Hupyeong MS"), _t(2, "2007-01-01", 2, "Yukminkwan MS"),
+                            _t(3, "2010-07-01", 3, "Hamburger SV II"), _t(4, "2013-07-01", 4, "Hamburger SV"),
+                            _t(5, "2015-08-01", 5, "Tottenham")], "2026-07-06")
+    # 첫 시장가치 2010-12-01, 첫 출전 2012-08-01 -> 이른 쪽(2010-12-01) 이전에 끝난 구간만 유스 (Hamburger SV II 는 걸침)
+    out = logic.collapse_youth(blocks, "2010-12-01", "2012-08-01")
+    assert [b["club"] for b in out] == ["유스", "Hamburger SV II", "Hamburger SV", "Tottenham"]
+    assert (out[0]["start"], out[0]["end"], out[0]["color"]) == ("2005-01-01", "2010-07-01", 2)
+    assert out[1]["start"] == out[0]["end"]                       # 빈틈 없음
+    # 첫 출전이 더 이르면 그 날이 기준
+    early = logic.collapse_youth(blocks, "2010-12-01", "2007-06-01")
+    assert [b["club"] for b in early][:2] == ["유스", "Yukminkwan MS"] and early[0]["end"] == "2007-01-01"
+    assert logic.collapse_youth(blocks, None, None) == blocks          # 기준이 없으면 그대로
+    assert logic.collapse_youth(blocks, "2004-01-01", None) == blocks  # 끝난 구간이 없으면 그대로
+    assert logic.strip_start("2005-01-01", "2010-12-01") == "2009-12-01"
+    assert logic.strip_start("2012-01-01", "2010-12-01") == "2012-01-01"
+    assert logic.strip_start("2005-01-01", None) == "2005-01-01"

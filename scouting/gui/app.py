@@ -8,18 +8,14 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, ttk
 
-from matplotlib import rcParams
-
 from scouting import db
 from scouting.cli.main import describe_db_error
 from scouting.services import players
-from . import logic
+from . import logic, theme
 from .common import BackgroundJobs, friendly_error
 from .dpi import configure_tk_scaling, enable_dpi_awareness
 
 enable_dpi_awareness()
-rcParams["font.family"] = ["Malgun Gothic", "DejaVu Sans"]
-rcParams["axes.unicode_minus"] = False
 
 
 class ScoutingApp:
@@ -30,27 +26,34 @@ class ScoutingApp:
         self.dpi = configure_tk_scaling(root)
         self.db_path = db.db_path(db_path)
         self.conn = db.connect(self.db_path)
-        self.font = "Malgun Gothic" if "Malgun Gothic" in tkfont.families(root) else "TkDefaultFont"
         root.title(logic.TITLE)
         display_scale = self.dpi / 96.0
         root.geometry(f"{round(1280 * display_scale)}x{round(800 * display_scale)}")
         root.minsize(round(960 * display_scale), round(650 * display_scale))
+        root.configure(background=theme.PAPER)
+
+        self.fonts = theme.resolve_fonts(root)
+        self.mpl_fonts = theme.configure_matplotlib(self.fonts)
+        self.font = self.fonts.ko
         self._configure_style(root, display_scale)
-        root.option_add("*Font", (self.font, 9))
+        root.option_add("*TCombobox*Listbox.font", self.fonts.spec("body"))
+        root.option_add("*TCombobox*Listbox.selectBackground", theme.CARD_YELLOW)
+        root.option_add("*TCombobox*Listbox.selectForeground", theme.INK)
 
         self.cutoff = players.data_cutoff(self.conn)
         self.coverage = players.coverage_summary(self.conn)
         self.nationalities = players.nationalities(self.conn)
 
-        header = ttk.Frame(root)
-        header.pack(fill="x", padx=12, pady=(8, 2))
-        ttk.Label(header, text=logic.TITLE, font=(self.font, 16, "bold")).pack(anchor="w")
-        ttk.Label(header, text=logic.DESCRIPTION).pack(anchor="w")
-        ttk.Label(header, text=logic.banner_text(self.cutoff), foreground="#a33a00",
-                  font=(self.font, 9, "bold")).pack(anchor="w", pady=(2, 0))
+        band = ttk.Frame(root, style="Band.TFrame")
+        band.pack(fill="x")
+        ttk.Label(band, text=logic.TITLE, style="Band.TLabel").pack(side="left", padx=14, pady=8)
+        ttk.Label(band, text=logic.banner_text(self.cutoff), style="BandSmall.TLabel").pack(
+            side="right", padx=14)
 
         self.status_var = tk.StringVar(value="준비")
-        ttk.Label(root, textvariable=self.status_var, relief="sunken", anchor="w").pack(fill="x", side="bottom")
+        ttk.Label(root, textvariable=self.status_var, style="Muted.TLabel", anchor="w").pack(
+            fill="x", side="bottom", padx=12, pady=3)
+        ttk.Separator(root, orient="horizontal").pack(fill="x", side="bottom")
         self.stage = ttk.Frame(root)
         self.stage.pack(fill="both", expand=True)
         self.search = SearchView(self, self.stage)
@@ -63,20 +66,9 @@ class ScoutingApp:
 
     def _configure_style(self, root, display_scale):
         style = ttk.Style(root)
-        style.theme_use("vista" if "vista" in style.theme_names() else "clam")
-        style.configure(".", font=(self.font, 9))
-        tree_font_name = style.lookup("Treeview", "font") or "TkDefaultFont"
-        named = set(tkfont.names(root))
-        tree_font = (tkfont.nametofont(tree_font_name, root=root) if tree_font_name in named
-                     else tkfont.Font(root=root, font=tree_font_name))
-        heading_name = style.lookup("Treeview.Heading", "font") or tree_font_name
-        heading_font = (tkfont.nametofont(heading_name, root=root) if heading_name in named
-                        else tkfont.Font(root=root, font=heading_name))
-        pad = max(3, round(2 * display_scale))
-        style.configure("Treeview", rowheight=tree_font.metrics("linespace") + pad * 2)
-        style.configure("Treeview.Heading", padding=(round(4 * display_scale), pad), font=heading_font)
-        style.configure("Season.Treeview", rowheight=round(tree_font.metrics("linespace") * 1.4))
-        self.tree_font = tree_font
+        body = tkfont.Font(root=root, font=self.fonts.spec("body"))
+        theme.configure_ttk(style, self.fonts, display_scale, body.metrics("linespace"))
+        self.tree_font = body
 
     # --- navigation -------------------------------------------------------
     def show_search(self):

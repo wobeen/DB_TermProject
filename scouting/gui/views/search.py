@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from scouting.services import players
-from .. import logic
+from .. import logic, theme
 from ..common import clear_tree, make_tree
 
 PAGE_SIZE = 20
@@ -19,63 +19,74 @@ class SearchView(ttk.Frame):
         self.last_filters: dict | None = None
         self.pending = False
 
-        panel = ttk.LabelFrame(self, text="검색 조건")
-        panel.pack(side="left", fill="y", padx=(10, 4), pady=8)
+        rail = ttk.Frame(self, style="Rail.TFrame", width=round(250 * app.dpi / 96.0))
+        rail.pack(side="left", fill="y")
+        rail.pack_propagate(False)
+        ttk.Label(rail, text="검색 조건", style="RailTitle.TLabel").pack(anchor="w", padx=14, pady=(14, 4))
         self.name = tk.StringVar()
         self.pos = tk.StringVar()
         self.nat = tk.StringVar()
         self.club = tk.StringVar()
         self.min_age = tk.StringVar()
         self.max_age = tk.StringVar()
-        width = 22
         self.entries = []
 
         def field(label, widget):
-            ttk.Label(panel, text=label).pack(anchor="w", padx=8, pady=(8, 0))
-            widget.pack(fill="x", padx=8)
+            ttk.Label(rail, text=label, style="Rail.TLabel").pack(anchor="w", padx=14, pady=(10, 2))
+            widget.pack(fill="x", padx=14)
             self.entries.append(widget)
             return widget
 
-        field("이름", ttk.Entry(panel, textvariable=self.name, width=width))
-        field("포지션군", ttk.Combobox(panel, textvariable=self.pos, values=tuple(logic.POS_LABELS),
-                                      width=width - 2, state="readonly"))
-        field("국적", ttk.Combobox(panel, textvariable=self.nat, values=("", *app.nationalities), width=width - 2))
-        field("거쳐 간 구단 (이름 포함)", ttk.Entry(panel, textvariable=self.club, width=width))
-        ages = ttk.Frame(panel)
-        ttk.Label(panel, text="나이 범위 (기준일 만 나이)").pack(anchor="w", padx=8, pady=(8, 0))
-        ages.pack(fill="x", padx=8)
-        ttk.Entry(ages, textvariable=self.min_age, width=6).pack(side="left")
-        ttk.Label(ages, text=" ~ ").pack(side="left")
-        ttk.Entry(ages, textvariable=self.max_age, width=6).pack(side="left")
-        self.entries += list(ages.winfo_children())
-        buttons = ttk.Frame(panel)
-        buttons.pack(fill="x", padx=8, pady=12)
-        self.search_btn = ttk.Button(buttons, text="검색", command=lambda: self.search(0))
-        self.search_btn.pack(side="left", fill="x", expand=True)
-        ttk.Button(buttons, text="초기화", command=self.reset).pack(side="left", padx=(6, 0))
+        field("이름", ttk.Entry(rail, textvariable=self.name))
+        field("포지션군", ttk.Combobox(rail, textvariable=self.pos, values=tuple(logic.POS_LABELS),
+                                      state="readonly"))
+        field("국적", ttk.Combobox(rail, textvariable=self.nat, values=("", *app.nationalities)))
+        field("거쳐 간 구단 (이름 일부)", ttk.Entry(rail, textvariable=self.club))
+        ttk.Label(rail, text="나이 범위 (기준일 만 나이)", style="Rail.TLabel").pack(anchor="w", padx=14, pady=(10, 2))
+        ages = ttk.Frame(rail, style="Rail.TFrame")
+        ages.pack(fill="x", padx=14)
+        low = ttk.Entry(ages, textvariable=self.min_age, width=5)
+        low.pack(side="left")
+        ttk.Label(ages, text="부터", style="Rail.TLabel").pack(side="left", padx=4)
+        high = ttk.Entry(ages, textvariable=self.max_age, width=5)
+        high.pack(side="left")
+        ttk.Label(ages, text="까지", style="Rail.TLabel").pack(side="left", padx=4)
+        self.entries += [low, high]
+        self.search_btn = ttk.Button(rail, text="검색", style="RailPrimary.TButton",
+                                     command=lambda: self.search(0))
+        self.search_btn.pack(fill="x", padx=14, pady=(18, 6))
+        ttk.Button(rail, text="초기화", style="Rail.TButton", command=self.reset).pack(fill="x", padx=14)
         for widget in self.entries:
             widget.bind("<Return>", lambda _e: self.search(0))
 
         right = ttk.Frame(self)
-        right.pack(side="left", fill="both", expand=True, padx=(4, 10), pady=8)
+        right.pack(side="left", fill="both", expand=True, padx=(14, 14), pady=12)
+        top = ttk.Frame(right)
+        top.pack(fill="x")
+        self.count = ttk.Label(top, text=logic.DESCRIPTION, style="Muted.TLabel")
+        self.count.pack(side="left")
+        self.pager = ttk.Label(top, text="", style="Muted.TLabel")
+        self.pager.pack(side="right")
         columns = (
-            ("name", "이름", 170, True), ("pos", "포지션", 70), ("nat", "국적", 110, True),
-            ("age", "나이", 45), ("club", "현재 구단", 150, True), ("value", "현재 가치", 85), ("peak", "최고 가치", 85),
+            ("name", "이름", 170, True), ("pos", "포지션", 70), ("nat", "국적", 120, True),
+            ("age", "나이", 50), ("club", "현재 구단", 170, True), ("value", "현재 가치", 90), ("peak", "최고 가치", 90),
         )
-        self.tree = make_tree(right, columns, height=20, left=("name", "pos", "nat", "club"))
+        self.tree = make_tree(right, columns, height=18, left=("name", "pos", "nat", "club"))
+        self.tree.tag_configure("zebra1", background=theme.ZEBRA)
         self.tree.bind("<Double-1>", lambda _e: self.open_selected())
         self.tree.bind("<Return>", lambda _e: self.open_selected())
+        self.empty = ttk.Label(self.tree, text=logic.EMPTY_SEARCH, style="Empty.TLabel")
         foot = ttk.Frame(right)
-        foot.pack(fill="x", pady=4)
-        self.count = ttk.Label(foot, text="조건을 입력하고 검색하세요. 더블클릭 또는 Enter로 커리어를 엽니다.")
-        self.count.pack(side="left")
-        self.forward_btn = ttk.Button(foot, text="커리어로 ▶", command=lambda: app.show_career())
-        self.forward_btn.pack(side="right", padx=(4, 8))
-        ttk.Button(foot, text="커리어 보기", command=self.open_selected).pack(side="right", padx=4)
-        self.next = ttk.Button(foot, text="다음", command=lambda: self.search(self.page + 1, use_last=True), state="disabled")
-        self.next.pack(side="right", padx=4)
-        self.prev = ttk.Button(foot, text="이전", command=lambda: self.search(self.page - 1, use_last=True), state="disabled")
+        foot.pack(fill="x", pady=(6, 0))
+        ttk.Button(foot, text="커리어 보기", style="Primary.TButton", command=self.open_selected).pack(side="right")
+        self.next = ttk.Button(foot, text="다음", command=lambda: self.search(self.page + 1, use_last=True),
+                               state="disabled")
+        self.next.pack(side="right", padx=8)
+        self.prev = ttk.Button(foot, text="이전", command=lambda: self.search(self.page - 1, use_last=True),
+                               state="disabled")
         self.prev.pack(side="right")
+        self.forward_btn = ttk.Button(foot, text="열어 둔 커리어 ▶", command=lambda: app.show_career())
+        self.forward_btn.pack(side="left")
 
     def refresh_nav(self):
         self.forward_btn.configure(state="normal" if self.app.career.player_id else "disabled")
@@ -124,25 +135,31 @@ class SearchView(ttk.Frame):
             if not use_last:                    # 새 검색이면 열려 있던 커리어는 더 이상 이 목록의 일부가 아니다
                 self.app.career.index = None
             clear_tree(self.tree)
-            for row in rows:
-                self.tree.insert("", "end", iid=str(row["player_id"]), values=(
+            for i, row in enumerate(rows):
+                self.tree.insert("", "end", iid=str(row["player_id"]), tags=(f"zebra{i % 2}",), values=(
                     row["name"], logic.POS_KO.get(row["pos_group"], "-"),
-                    row["country_of_citizenship"] or "-", "-" if row["age"] is None else row["age"],
-                    row["current_club_name"] or "-", logic.eur(row["latest_value_eur"]),
-                    logic.eur(row["peak_value_eur"]),
+                    row["country_of_citizenship"] or "-", str("-" if row["age"] is None else row["age"]) + "  ",
+                    row["current_club_name"] or "-", logic.eur(row["latest_value_eur"]) + "  ",
+                    logic.eur(row["peak_value_eur"]) + "  ",
                 ))
             pages = max(1, -(-self.total // PAGE_SIZE))
-            self.count.configure(text=f"총 {self.total:,}명 · {page + 1}/{pages} 페이지")
+            self.count.configure(text=f"결과 {self.total:,}명")
+            self.pager.configure(text=f"{page + 1} / {pages} 쪽")
             self.prev.configure(state="normal" if page else "disabled")
             self.next.configure(state="normal" if (page + 1) * PAGE_SIZE < self.total else "disabled")
             children = self.tree.get_children()
             if children:
+                self.empty.place_forget()
                 self.select_row(0)
+            else:
+                self.empty.place(relx=0.5, rely=0.3, anchor="center")
             if open_index is not None and children:
                 self.open_index(open_index)
 
-        self.app.jobs.submit("선수 검색", job, done, button=self.search_btn,
-                             on_error=lambda _e: setattr(self, "pending", False))
+        self.app.jobs.submit(
+            "선수 검색", job, done, button=self.search_btn, busy="선수를 찾는 중",
+            done=lambda result, t: f"선수 {result[0]:,}명을 찾았습니다 ({t:.1f}초)",
+            on_error=lambda _e: setattr(self, "pending", False))
 
     def select_row(self, row):
         iid = self.tree.get_children()[row]

@@ -447,3 +447,9 @@ def coverage_summary(conn: sqlite3.Connection) -> dict:
         "OR co.sub_type LIKE 'uefa%') AND EXISTS (SELECT 1 FROM appearance a "
         "WHERE a.competition_id = co.competition_id) LIMIT 1").fetchone() is not None
     return {"covered_leagues": covered, "types": sorted(types), "has_uefa": uefa}
+
+
+def first_appearance_date(conn: sqlite3.Connection, player_id: int) -> str | None:
+    """수록된 첫 출전 경기 날짜 (appearance(player_id, date) 인덱스로 MIN 한 번)."""
+    row = conn.execute("SELECT MIN(date) FROM appearance WHERE player_id = ?", (player_id,)).fetchone()
+    return row[0]
