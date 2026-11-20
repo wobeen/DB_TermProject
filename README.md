@@ -23,7 +23,33 @@ python -m scouting create-admin admin --password admin1234
 - 디스크는 원천 약 0.5GB와 DB 약 0.85GB가 필요하다.
 - 백테스트 스냅샷 `bt2019`, `bt2020`은 `bench/run_all.py`가 추가한다.
 
-## 사용 방법
+## GUI 사용 방법
+
+```bash
+python -m scouting.gui                # 기본 DB(data/scouting.sqlite)
+python -m scouting.gui --db PATH      # 다른 DB 파일
+```
+
+Tkinter 데스크톱 창이 뜬다. 추가 설치는 없다(그래프는 requirements의 matplotlib 사용). 고해상도(배율 200%) 화면에 맞춰 글꼴·그래프 크기가 조정된다.
+
+1. 시작 창에서 로그인하거나 회원가입한다. 계정은 CLI와 같다.
+2. 상단 탭에서 기능을 고른다.
+
+| 탭 | 하는 일 |
+|---|---|
+| 선수 검색 | 이름·포지션군·최대 나이·리그로 검색한다. 총 건수와 이전/다음 페이지가 있다. 더블클릭하면 프로필이 열리고, 버튼으로 워치리스트에 추가한다 |
+| 선수 프로필 | 시즌별 성장표(포지션별 지표), **나이별 성장 그래프**, **시장가치 추이 그래프(최고값 표시)**, 스냅샷 기준 **동나이대 백분위 막대**를 보여 준다. 유사 선수·워치리스트·노트 작성 버튼이 있다 |
+| 유사 선수 | 선수 ID·스냅샷·시즌·k·월클 정의를 고르면 같은 나이·포지션의 비슷한 과거 선수와 월클 여부를 보여 준다 |
+| 추천 | 스냅샷·정의·포지션군·방식을 드롭다운으로 고르고, 필요하면 고급 설정을 바꾼 뒤 `추천 실행`을 누른다. 계산은 백그라운드에서 돌아서 창이 멈추지 않는다 |
+| 내 추천 기록 | 저장된 run → 추천 선수 → 근거 이웃(비슷했던 과거 선수) 순으로 들어간다 |
+| 워치리스트 / 스카우팅 노트 | 조회·추가·수정·삭제(삭제는 확인 창). 본인 것만 바꿀 수 있다 |
+| 기준 돌파 유망주 | 같은 나이 월클들과 지표를 `all`(전원보다 높음) / `some`(한 명 이상보다 높음)으로 비교한다. 행마다 비교한 월클 수와 최댓값·최솟값을 보여 준다 |
+
+- 하단 상태줄에 진행 중인 작업, 소요 시간, 오류가 나온다.
+- 관리자 기능(데이터 현황, 스냅샷 재계산, 월클 정의, 백테스트, 역할 변경)은 CLI에만 있다.
+- 스크린샷은 `report/figures/gui_*.png`에 있다. `python scripts/capture_gui.py`로 다시 찍을 수 있다(DB 복사본을 쓰므로 원본은 바뀌지 않는다).
+
+## CLI 사용 방법
 
 ```bash
 python -m scouting                  # 기본 DB(data/scouting.sqlite)
@@ -99,6 +125,7 @@ flowchart TB
   CORE --> DERIVE["pipeline/derive.py: 출전 구간 · 시즌 지표 · 스냅샷"]
   DERIVE --> DER["파생 계층: player_season · player_season_metric<br/>snapshot → cohort_baseline · player_season_z · world_class_label"]
   CLI["scouting/cli: 한국어 메뉴"] --> SVC["scouting/services: players · knn · recommend · backtest · notes · watchlist · admin"]
+  GUI["scouting/gui: Tkinter + matplotlib<br/>(작업 스레드별 연결)"] --> SVC
   SVC --> CONN["scouting/db.py: connect · transaction"]
   CONN -->|"조회 (as_of 뷰)"| DER
   CONN -->|"쓰기 (트랜잭션)"| APP["서비스 계층: app_user · watchlist · scouting_note · recommendation_* · backtest_result"]
@@ -144,7 +171,7 @@ python report/build.py                                 # report.md → report.do
 | `docs/reviews/` | 교차 리뷰 결과 |
 | `db/` | `schema.sql`, `views.sql`, `indexes.sql`, `reference_data.sql` |
 | `pipeline/`, `scripts/` | 다운로드, 적재, 파생 계산, `setup_db.py` |
-| `scouting/` | DB 연결(`db.py`), 서비스 계층(`services/`), CLI(`cli/`) |
+| `scouting/` | DB 연결(`db.py`), 서비스 계층(`services/`), CLI(`cli/`), GUI(`gui/`) |
 | `tests/` | `pipeline/`, `app/` |
 | `bench/` | 성능·백테스트 실험과 결과 |
 | `report/` | 보고서 원문, 빌드 스크립트, 그림, CLI 출력 기록 |
