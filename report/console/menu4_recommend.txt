@@ -1,0 +1,102 @@
+
+=== 스카우팅 DB ===
+   1. 로그인
+   2. 회원가입
+   0. 종료
+선택> 1
+사용자명: demo
+비밀번호: demo1234
+demo 님 환영합니다. (역할: admin)
+
+=== 메인 메뉴 (demo) ===
+   1. 선수 검색
+   2. 선수 프로필
+   3. 유사 선수 Top-k
+   4. 다음 월클 추천 실행
+   5. 내 추천 기록 / 결과 상세
+   6. 워치리스트
+   7. 스카우팅 노트
+   8. 기준 돌파 유망주 (> ALL / > SOME)
+   9. 데이터 현황
+  10. 스냅샷 재계산
+  11. 월클 정의 관리
+  12. 백테스트 실행
+  13. 사용자 역할 변경
+   0. 로그아웃
+선택> 4
+스냅샷을 선택하세요.
+  1. current  (as_of 2026-07-07, 빌드 2026-11-20 01:38:05)
+  2. bt2018  (as_of 2018-07-01, 빌드 2026-11-20 01:38:58)
+  3. bt2019  (as_of 2019-07-01, 빌드 2026-11-20 09:46:29)
+  4. bt2020  (as_of 2020-07-01, 빌드 2026-11-20 09:46:40)
+  0. 취소
+번호> 1
+월클 정의를 선택하세요.
+  1. peak_value_50m  최고 시장가치 €50M 이상 (GK €30M)
+  2. big5_cl_regular  빅5 리그 주전 3시즌 + CL 900분
+  0. 취소
+번호> 1
+포지션군을 선택하세요.
+  1. GK
+  2. DF
+  3. MF
+  4. FW
+  0. 취소
+번호> 2
+추천 method
+  1. random
+  2. market_value
+  3. similarity
+  4. hybrid
+  0. 취소
+번호> 3
+기본값(max_age 21, min_minutes 900, k 25, top_n 20, pool_lag 3, seed 42)으로 바로 실행할까요? n=고급 설정 입력 (y/n) y
+계산 중... (후보 107명)
+추천 완료: run #2 (소요 0.7초)
+run #2  method=similarity pos=DF max_age=21 k=25 top_n=20 seed=42
+순위 |      ID | 이름              | 구단                 |  점수 | 월클이웃 | 시장가치(as_of)
+-----+---------+-------------------+----------------------+-------+----------+----------------
+   1 |  924117 | Finn Jeltsch      | VfB Stuttgart        | 0.388 |        9 | €35.0M         
+   2 | 1121298 | Juma Bah          | OGC Nice             | 0.322 |        9 | €10.0M         
+   3 |  935480 | Martim Fernandes  | FC Porto             | 0.287 |        7 | €12.0M         
+   4 |  895334 | Yarek Gasiorowski | PSV Eindhoven        | 0.280 |        7 | €18.0M         
+   5 | 1061336 | Pau Navarro       | Villarreal CF        | 0.260 |        6 | €15.0M         
+   6 |  910905 | Mamadou Sarr      | RC Strasbourg Alsace | 0.257 |        6 | €22.0M         
+   7 |  887638 | Davide Bartesaghi | AC Milan             | 0.256 |        6 | €22.0M         
+   8 |  946883 | Iván Fresneda     | Sporting CP          | 0.238 |        6 | €15.0M         
+   9 |  948278 | Jacobo Ramón      | Como 1907            | 0.230 |        5 | €30.0M         
+  10 |  670858 | Lewis Hall        | Newcastle United     | 0.224 |        6 | €40.0M         
+  11 | 1005575 | Vitor Reis        | Girona FC            | 0.214 |        5 | €30.0M         
+  12 | 1034853 | Nobel Mendy       | Rayo Vallecano       | 0.199 |        4 | €7.5M          
+  13 |  863759 | Bruno Ogbus       | SC Freiburg          | 0.181 |        5 | €15.0M         
+  14 |  991487 | Abdoul Ouattara   | RC Strasbourg Alsace | 0.168 |        4 | €15.0M         
+  15 |  904802 | Jorrel Hato       | Chelsea FC           | 0.167 |        4 | €40.0M         
+  16 |  741257 | Álex Jiménez      | AFC Bournemouth      | 0.162 |        4 | €22.0M         
+  17 |  746712 | Pietro Comuzzo    | ACF Fiorentina       | 0.162 |        4 | €18.0M         
+  18 |  823486 | Michael Kayode    | Brentford FC         | 0.155 |        3 | €40.0M         
+  19 | 1020191 | Ismaëlo Ganiou    | RC Lens              | 0.153 |        4 | €20.0M         
+  20 | 1112449 | Tiago Gabriel     | US Lecce             | 0.149 |        4 | €15.0M         
+
+=== 메인 메뉴 (demo) ===
+   1. 선수 검색
+   2. 선수 프로필
+   3. 유사 선수 Top-k
+   4. 다음 월클 추천 실행
+   5. 내 추천 기록 / 결과 상세
+   6. 워치리스트
+   7. 스카우팅 노트
+   8. 기준 돌파 유망주 (> ALL / > SOME)
+   9. 데이터 현황
+  10. 스냅샷 재계산
+  11. 월클 정의 관리
+  12. 백테스트 실행
+  13. 사용자 역할 변경
+   0. 로그아웃
+선택> 0
+
+=== 스카우팅 DB ===
+   1. 로그인
+   2. 회원가입
+   0. 종료
+선택> 0
+종료합니다.
