@@ -474,6 +474,9 @@ class CareerView(ttk.Frame):
         self.season_band = Rectangle((0, 0), 1, 1, transform=value.get_xaxis_transform(), zorder=1.5,
                                      facecolor=theme.CARD_YELLOW, alpha=0.35, edgecolor="none", visible=False)
         value.add_patch(self.season_band)
+        # constrained layout 이 보이는 툴팁까지 자리 계산에 넣으면, 커서를 올릴 때마다 축이 움직여 띠가 들썩인다.
+        for artist in (self.hover_marker, self.hover_line, self.hover_tip, self.strip_tip, self.season_band):
+            artist.set_in_layout(False)
 
     def hide_hover(self):
         self.key_index = None

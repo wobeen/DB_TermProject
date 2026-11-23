@@ -354,6 +354,33 @@ def test_value_hover_tooltip_and_block_tooltip(career_path, tk_root):
         _dispose(app)
 
 
+def test_hover_tooltips_do_not_move_the_axes(career_path, tk_root):
+    """툴팁이 constrained layout 에 들어가면 커서를 올릴 때마다 띠·축이 들썩인다."""
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        c = app.career
+        app.open_career(301)
+        _wait(root, lambda: c.card is not None)
+        root.update()
+        num = lambda day: __import__("matplotlib.dates", fromlist=["date2num"]).date2num(
+            __import__("datetime").datetime.fromisoformat(day))
+
+        def positions():
+            c.strip_fig.canvas.draw()
+            return [tuple(round(v, 3) for v in ax.get_position().bounds) for ax in (c.strip_ax, c.value_ax)]
+
+        before = positions()
+        for ax, day, y in ((c.strip_ax, "2023-06-01", 0.5), (c.value_ax, "2025-04-20", 12.0)):
+            c.last_motion = 0
+            c.on_motion(_motion(c.strip_canvas, ax, num(day), y))
+            assert c.strip_tip.get_visible() or c.hover_tip.get_visible()
+            assert positions() == before
+    finally:
+        _dispose(app)
+
+
 def test_season_link_between_chart_and_table(career_path, tk_root):
     root = tk_root
     _show(root)
