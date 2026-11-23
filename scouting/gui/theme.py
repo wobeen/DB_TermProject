@@ -8,11 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 TURF = "#1F4D3A"
-TURF_2 = "#3F8A66"
+TURF_2 = "#2F7A57"
 PITCH_LINE = "#FFFFFF"
 PAPER = "#EEF1EE"
 INK = "#1C2B24"
-MUTED = "#66756D"
+MUTED = "#58675F"
 RULE = "#CBD5CE"
 CARD_YELLOW = "#F2C230"
 CARD_RED = "#C23B33"
@@ -101,7 +101,7 @@ def style_axes(ax, scale: float = 1.0, *, grid: bool = True) -> None:
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
         ax.spines[side].set_color(RULE)
-    ax.tick_params(colors=MUTED, labelsize=8 * scale, length=3 * scale, color=RULE)
+    ax.tick_params(colors=MUTED, labelsize=9 * scale, length=3 * scale, color=RULE)
     ax.xaxis.label.set_color(MUTED)
     ax.yaxis.label.set_color(MUTED)
     if grid:

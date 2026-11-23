@@ -313,9 +313,6 @@ class PitchPicker(ttk.Frame):
         cx, w, h = (x0 + x1) / 2, x1 - x0, y1 - y0
         c.create_rectangle(cx - w * 0.28, y1 - h * 0.15, cx + w * 0.28, y1, outline=theme.PITCH_LINE, width=line)
         c.create_rectangle(cx - w * 0.12, y1 - h * 0.06, cx + w * 0.12, y1, outline=theme.PITCH_LINE, width=line)
-        r_arc = h * 0.11
-        c.create_arc(cx - r_arc, y0 - r_arc, cx + r_arc, y0 + r_arc, start=180, extent=180,
-                     style="arc", outline=theme.PITCH_LINE, width=line)
         rows = logic.formation_rows(self.formation)
         self.slots = []
         if not rows:

@@ -47,6 +47,7 @@ class CareerView(ttk.Frame):
         self.band_ticks: list = []
         self.hl_label = None
         self.table_hover = None
+        self.key_index = None
         self.row_tags: dict = {}
         self.first_appearance = None
         self.xlim_lo = None
@@ -59,11 +60,11 @@ class CareerView(ttk.Frame):
         # --- 위쪽 줄: 검색으로 돌아가기 / 이전·다음 선수 -------------------------
         nav = ttk.Frame(self)
         nav.pack(fill="x", pady=(10, 0), **pad)
-        ttk.Button(nav, text="← 검색 결과", command=app.show_search).pack(side="left")
+        ttk.Button(nav, text="검색 결과로", command=app.show_search).pack(side="left")
         self.pager = ttk.Frame(nav)
-        self.prev_btn = ttk.Button(self.pager, text="◀", width=3, command=lambda: self.step(-1))
+        self.prev_btn = ttk.Button(self.pager, text="이전 선수", command=lambda: self.step(-1))
         self.pos_label = ttk.Label(self.pager, text="", style="Pill.TLabel")
-        self.next_btn = ttk.Button(self.pager, text="▶", width=3, command=lambda: self.step(1))
+        self.next_btn = ttk.Button(self.pager, text="다음 선수", command=lambda: self.step(1))
         self.prev_btn.pack(side="left")
         self.pos_label.pack(side="left", padx=8)
         self.next_btn.pack(side="left")
@@ -93,16 +94,27 @@ class CareerView(ttk.Frame):
             self.fact_labels[key] = value
 
         # --- 커리어 경로 (구단 띠 + 시장가치) -----------------------------------------
-        ttk.Label(self, text="커리어 경로", style="Section.TLabel").pack(anchor="w", pady=(12, 2), **pad)
+        title_row = ttk.Frame(self)
+        title_row.pack(fill="x", pady=(12, 2), **pad)
+        ttk.Label(title_row, text="커리어 경로", style="Section.TLabel").pack(side="left")
+        ttk.Label(title_row, style="Muted.TLabel", text="노란 표시는 이적료가 있는 이적입니다. "
+                  "차트를 선택하고 좌우 방향키를 누르면 날짜별 값을 볼 수 있습니다.").pack(side="right")
         self.strip_fig = Figure(figsize=(8, 2.3), dpi=100, facecolor=theme.PITCH_LINE, constrained_layout=True)
         self.strip_canvas = FigureCanvasTkAgg(self.strip_fig, master=self)
         strip_widget = self.strip_canvas.get_tk_widget()
-        strip_widget.configure(height=round(165 * scale), highlightthickness=0)
+        strip_widget.configure(height=round(165 * scale), highlightthickness=round(2 * scale),
+                               highlightbackground=theme.PITCH_LINE, highlightcolor=theme.CARD_YELLOW,
+                               takefocus=1)
         strip_widget.pack(fill="x", **pad)
         self.strip_canvas.mpl_connect("resize_event", lambda _e: self.place_strip_labels())
         self.strip_canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.strip_canvas.mpl_connect("axes_leave_event", lambda _e: self.hide_hover())
         self.strip_canvas.mpl_connect("figure_leave_event", lambda _e: self.hide_hover())
+        for key, delta in (("<Left>", -1), ("<Right>", 1)):
+            strip_widget.bind(key, lambda _e, d=delta: self.key_hover(d))
+        strip_widget.bind("<Escape>", lambda _e: self.hide_hover())
+        strip_widget.bind("<FocusOut>", lambda _e: self.hide_hover())
+        strip_widget.bind("<Button-1>", lambda _e: strip_widget.focus_set(), add="+")
 
         # --- 아래쪽: 이적 이력 (항상 5줄, 펼치면 전부) ------------------------------------
         ledger = ttk.Frame(self)
@@ -409,7 +421,8 @@ class CareerView(ttk.Frame):
         self.xlim_lo = _num(logic.strip_start(self.blocks[0]["start"], first_val)) if self.blocks else None
 
         theme.style_axes(value, s)
-        value.text(0, 1.04, "시장가치 (€M)", transform=value.transAxes, color=theme.MUTED, fontsize=8 * s,
+        value.grid(False)                   # 시즌 띠가 이미 가로 구분을 하므로 격자선은 빼서 줄무늬가 겹치지 않게
+        value.text(0, 1.04, "시장가치 (€M)", transform=value.transAxes, color=theme.MUTED, fontsize=9 * s,
                    ha="left", va="bottom")
         strip.set_axis_off()
         strip.set_ylim(0, 1)
@@ -436,10 +449,6 @@ class CareerView(ttk.Frame):
             value.annotate(f"최고 {logic.eur(peak['market_value_eur'])}", (peak_x, peak_y),
                            xytext=(8 * s, -2 * s), textcoords="offset points", color=theme.INK,
                            fontsize=9 * s, va="center")
-            lo, hi = series["dates"][0], series["dates"][-1]
-            for b in self.blocks[1:]:
-                if lo <= b["start"] <= hi:
-                    value.axvline(_num(b["start"]), color=theme.RULE, linewidth=0.8, zorder=1)
         else:
             value.text(0.5, 0.5, "시장가치 데이터 없음", ha="center", va="center", transform=value.transAxes,
                        color=theme.MUTED, fontsize=9 * s)
@@ -472,6 +481,7 @@ class CareerView(ttk.Frame):
         strip.add_patch(self.season_outline)
 
     def hide_hover(self):
+        self.key_index = None
         changed = False
         for artist in (self.hover_marker, self.hover_line, self.hover_tip, self.strip_tip):
             if artist is not None and artist.get_visible():
@@ -502,7 +512,18 @@ class CareerView(ttk.Frame):
         return (x - lo) / (hi - lo) > 0.65 if hi != lo else False
 
     def _hover_value(self, x):
-        i = logic.nearest_index(self.val_nums, x)
+        self._show_value(logic.nearest_index(self.val_nums, x))
+
+    def key_hover(self, delta):
+        """마우스 없이 시장가치 점을 훑는다: 처음 누르면 가장 최근 점, 이후 좌우로 한 점씩 (양 끝에서 멈춘다)."""
+        if not self.val_nums:
+            return
+        last = len(self.val_nums) - 1
+        index = last if self.key_index is None else min(max(self.key_index + delta, 0), last)
+        self._show_value(index)
+
+    def _show_value(self, i):
+        self.key_index = i
         point = self.val_points[i]
         px, py = self.val_nums[i], point["market_value_eur"] / 1e6
         ax = self.value_ax
@@ -606,7 +627,7 @@ class CareerView(ttk.Frame):
             if x1 <= x0:
                 continue
             text = logic.short_season(season)
-            probe = value.text(0, 0, text, fontsize=8 * s, fontfamily=measure_family)
+            probe = value.text(0, 0, text, fontsize=9 * s, fontfamily=measure_family)
             width = probe.get_window_extent(renderer).width
             probe.remove()
             px0, px1 = (value.transData.transform((x, 0))[0] for x in (x0, x1))
@@ -618,7 +639,7 @@ class CareerView(ttk.Frame):
             spans.append((cx - width / 2, cx + width / 2))
         keep = logic.keep_uncolliding(spans, pad=6 * s)
         value.set_xticks([c for c, k in zip(centers, keep) if k], [t for t, k in zip(labels, keep) if k])
-        value.tick_params(axis="x", length=0, labelsize=8 * s, labelcolor=theme.MUTED, pad=3 * s)
+        value.tick_params(axis="x", length=0, labelsize=9 * s, labelcolor=theme.MUTED, pad=3 * s)
 
     def _draw_seasons(self):
         s = self.chart_scale
@@ -643,7 +664,7 @@ class CareerView(ttk.Frame):
         ax.set_xticks(xs[::step])
         ax.set_xticklabels(names[::step], rotation=45, ha="right")
         ax.set_ylim(0, max(everything["minutes"]) * 1.7 or 1)
-        ax.text(0, 1.03, "분", transform=ax.transAxes, color=theme.MUTED, fontsize=8 * s, ha="left", va="bottom")
+        ax.text(0, 1.03, "분", transform=ax.transAxes, color=theme.MUTED, fontsize=9 * s, ha="left", va="bottom")
         ax2 = ax.twinx()
         theme.style_axes(ax2, s, grid=False)
         ax2.spines["right"].set_visible(False)
@@ -651,9 +672,9 @@ class CareerView(ttk.Frame):
         ax2.plot(xs, [lg_ga.get(n, 0) for n in names], color=theme.INK, linewidth=1.8, marker="o",
                  markersize=3 * s, label="공격포인트(리그)")
         ax2.set_ylim(0, max(everything["ga"] + [1]) * 1.7)
-        ax2.text(1, 1.03, "공격포인트", transform=ax2.transAxes, color=theme.MUTED, fontsize=8 * s,
+        ax2.text(1, 1.03, "공격포인트", transform=ax2.transAxes, color=theme.MUTED, fontsize=9 * s,
                  ha="right", va="bottom")
         h1, l1 = ax.get_legend_handles_labels()
         h2, l2 = ax2.get_legend_handles_labels()
         ax2.legend(h1[::-1] + h2[::-1], l1[::-1] + l2[::-1], loc="upper left", ncol=2, frameon=False,
-                   fontsize=7.5 * s, labelcolor=theme.INK, columnspacing=1.0, handlelength=1.6)
+                   fontsize=8.5 * s, labelcolor=theme.INK, columnspacing=1.0, handlelength=1.6)

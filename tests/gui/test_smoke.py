@@ -24,11 +24,21 @@ def _show(root):
 
 
 def _type(root, auto, text, entry_var):
-    """입력 칸에 글자를 넣은 것처럼 연관검색어 흐름을 돌린다 (150 ms 디바운스 포함)."""
-    entry_var.set(text)
-    auto.last_text = ""                                        # 새로 입력한 것처럼
-    auto.on_key(type("Key", (), {"keysym": "x"})())
-    _wait(root, lambda: auto.is_open(), timeout=5)
+    """입력 칸에 글자를 넣은 것처럼 연관검색어 흐름을 돌린다 (150 ms 디바운스 포함).
+
+    다른 프로그램이 창을 건드리면(포커스/크기 변화) 팝업이 정상적으로 닫히므로, 그런 경우에만 두 번까지 다시 시도한다.
+    """
+    for attempt in range(3):
+        entry_var.set(text)
+        auto.last_text = ""                                        # 새로 입력한 것처럼
+        auto.on_key(type("Key", (), {"keysym": "x"})())
+        until = time.time() + 5
+        while time.time() < until and not auto.is_open():
+            root.update()
+            time.sleep(.01)
+        if auto.is_open():
+            return
+    assert auto.is_open()
 
 
 def _motion(canvas, ax, x, y):
@@ -409,5 +419,30 @@ def test_strip_is_drawn_without_gaps_and_axis_has_season_labels(career_path, tk_
         assert all(p.get_linewidth()[0] == 0 for p in bars if p.get_linewidth().size)
         labels = [t.get_text() for t in c.value_ax.get_xticklabels()]
         assert labels and all("/" in text and len(text) == 5 for text in labels)          # '24/25' 꼴 시즌 라벨
+    finally:
+        _dispose(app)
+
+
+def test_keyboard_alternative_to_hover(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        c = app.career
+        app.open_career(301)
+        _wait(root, lambda: c.card is not None)
+        root.update()
+        assert str(c.strip_canvas.get_tk_widget().cget("takefocus")) == "1"
+        c.key_hover(1)                                              # 처음 누르면 가장 최근 점 (2025-05-01)
+        assert c.hover_tip.get_visible() and c.hover_tip.get_text().split("\n")[0] == "2025-05-01 (2024/25)"
+        assert any("hl" in c.season_tree.item(p, "tags") for p in c.season_tree.get_children())   # 표 연동도 같다
+        c.key_hover(-1)
+        assert c.hover_tip.get_text().split("\n")[0] == "2023-01-01 (2022/23)"
+        c.key_hover(-1)                                             # 맨 앞에서 멈춘다
+        assert c.hover_tip.get_text().split("\n")[0] == "2023-01-01 (2022/23)"
+        c.key_hover(1)
+        assert c.hover_tip.get_text().split("\n")[0] == "2025-05-01 (2024/25)"
+        c.hide_hover()                                              # Esc / 포커스 이동과 같은 동작
+        assert not c.hover_tip.get_visible() and c.key_index is None
     finally:
         _dispose(app)

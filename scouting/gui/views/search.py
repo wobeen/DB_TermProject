@@ -154,7 +154,7 @@ class SearchView(ttk.Frame):
         self.prev = ttk.Button(foot, text="이전", command=lambda: self.search(self.page - 1, use_last=True),
                                state="disabled")
         self.prev.pack(side="right")
-        self.forward_btn = ttk.Button(foot, text="열어 둔 커리어 ▶", command=lambda: app.show_career())
+        self.forward_btn = ttk.Button(foot, text="방금 본 커리어", command=lambda: app.show_career())
         self.forward_btn.pack(side="left")
 
     # --- 연관검색어 / 포메이션 --------------------------------------------------------
