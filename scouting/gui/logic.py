@@ -166,8 +166,8 @@ def club_moves(transfers: Iterable[Mapping]) -> list[tuple[str, str, float | Non
 def tenures(transfers: Iterable[Mapping], cutoff: str) -> list[dict]:
     """이적 이력 -> 구단 재직 구간. 첫 이적일부터 cutoff 까지 빈틈·겹침 없이 이어진다.
 
-    각 구간: club, start, end(ISO 날짜), color(0/1, 처음 등장한 구단 순서로 번갈아 부여하고 복귀한 구단은
-    첫 재직 때의 색을 유지), fee(그 구간을 시작한 이적의 이적료). cutoff 이후(예정) 이적과 도착 구단이 없는 행은 무시한다.
+    각 구간: club, start, end(ISO 날짜), color(0/1: 위치 기준으로 번갈아 — 이웃 블록과 색이 겹치지 않게 —,
+    복귀한 구단은 그게 이웃과 같은 색이 되지 않을 때만 첫 재직 때의 색을 유지), fee(그 구간을 시작한 이적의 이적료). cutoff 이후(예정) 이적과 도착 구단이 없는 행은 무시한다.
     """
     moves = sorted((t for t in transfers if t.get("to_club") and t["transfer_date"] <= cutoff),
                    key=lambda t: (t["transfer_date"], t.get("transfer_id") or 0))
@@ -181,13 +181,19 @@ def tenures(transfers: Iterable[Mapping], cutoff: str) -> list[dict]:
     out: list[dict] = []
     for i, t in enumerate(kept):
         key = t.get("to_club_id") if t.get("to_club_id") is not None else t["to_club"]
-        if key not in colors:
-            colors[key] = len(colors) % 2
         end = kept[i + 1]["transfer_date"] if i + 1 < len(kept) else cutoff
         if end <= t["transfer_date"]:
             continue
+        prev = out[-1]["color"] if out else None
+        if key in colors:
+            color = colors[key]
+            if color == prev:              # 이웃 블록과 같은 색이 되면 다른 색으로 (이번 블록만)
+                color = 1 - color
+        else:
+            color = 0 if prev is None else 1 - prev
+            colors[key] = color
         out.append({"club": t["to_club"], "start": t["transfer_date"], "end": end,
-                    "color": colors[key], "fee": t.get("fee_eur")})
+                    "color": color, "fee": t.get("fee_eur")})
     return out
 
 
@@ -394,9 +400,42 @@ def nearest_index(days: list[float], x: float) -> int | None:
     return i - 1 if x - days[i - 1] <= days[i] - x else i
 
 
+def season_of(day: str) -> int:
+    """날짜가 속한 시즌의 시작 연도. 시즌은 7/1 에 시작한다: 2021-03-18 -> 2020 (2020/21)."""
+    d = date.fromisoformat(day)
+    return d.year if d.month >= 7 else d.year - 1
+
+
+def season_range(season: int) -> tuple[str, str]:
+    """시즌 시작 연도 -> (시작일, 종료일) ISO: 2020 -> ('2020-07-01', '2021-06-30')."""
+    return f"{season}-07-01", f"{season + 1}-06-30"
+
+
+def short_season(season: int) -> str:
+    return f"{season % 100:02d}/{(season + 1) % 100:02d}"
+
+
+def season_bands(lo: str, hi: str) -> list[int]:
+    """[lo, hi] 와 겹치는 시즌들의 시작 연도."""
+    return list(range(season_of(lo), season_of(hi) + 1))
+
+
+def keep_uncolliding(spans: list[tuple[float, float]], pad: float = 4.0) -> list[bool]:
+    """왼쪽부터 보며 앞서 남긴 라벨과 겹치는(여백 pad 포함) 라벨은 건너뛴다. 결과는 spans 와 같은 순서."""
+    keep: list[bool] = []
+    last_end = float("-inf")
+    for x0, x1 in spans:
+        ok = x0 >= last_end + pad
+        keep.append(ok)
+        if ok:
+            last_end = x1
+    return keep
+
+
 def tooltip_lines(point: Mapping) -> list[str]:
-    """시장가치 점 툴팁 세 줄: 날짜, 금액, 그 시점의 구단."""
-    return [point["date"], eur(point["market_value_eur"]), point.get("club_name") or "-"]
+    """시장가치 점 툴팁 세 줄: '날짜 (시즌)', 금액, 그 시점의 구단."""
+    day = point["date"]
+    return [f"{day} ({season_label(season_of(day))})", eur(point["market_value_eur"]), point.get("club_name") or "-"]
 
 
 def _months_between(start: date, end: date) -> int:

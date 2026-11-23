@@ -8,6 +8,7 @@ from tkinter import ttk
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 from scouting.services import players
 from .. import logic, theme
@@ -41,6 +42,12 @@ class CareerView(ttk.Frame):
         self.hover_marker = self.hover_line = None
         self.hover_tip = self.strip_tip = None
         self.last_motion = 0.0
+        self.season_band = self.season_outline = None
+        self.band_seasons: list[int] = []
+        self.band_ticks: list = []
+        self.hl_label = None
+        self.table_hover = None
+        self.row_tags: dict = {}
         self.first_appearance = None
         self.xlim_lo = None
         self.season_names: dict = {}
@@ -143,11 +150,15 @@ class CareerView(ttk.Frame):
             season_box,
             (("club", "구단 / 대회", 190, True), ("apps", "출전", 54), ("starts", "선발", 54), ("min", "분", 66),
              ("g", "골", 46), ("a", "도움", 52), ("y", "경고", 52), ("r", "퇴장", 52)),
-            height=6, tree_column=("시즌", 78), style="Season.Treeview", left=("club",), pad=(0, 4),
+            height=6, tree_column=("시즌", 100), style="Season.Treeview", left=("club",), pad=(0, 4),
         )
         tree = self.season_tree
         tree.tag_configure("parent", font=self.fonts.semibold())
         tree.tag_configure("zebra1", background=theme.PAPER)
+        tree.tag_configure("hl", background=theme.mix(theme.CARD_YELLOW, theme.PITCH_LINE, 0.6))
+        tree.bind("<<TreeviewSelect>>", lambda _e: self.on_table_select())
+        tree.bind("<Motion>", self.on_table_motion)
+        tree.bind("<Leave>", lambda _e: self.set_table_hover(None))
         tree.bind("<Button-1>", self.on_click)
         tree.bind("<Return>", self.on_key)
         tree.bind("<space>", self.on_key)
@@ -274,6 +285,8 @@ class CareerView(ttk.Frame):
         tree = self.season_tree
         clear_tree(tree)
         self.season_names = {}
+        self.row_tags = {}
+        self.hl_label = None
         if self.seasons["league"]:
             self.no_league.pack_forget()
         elif self.card:
@@ -281,13 +294,75 @@ class CareerView(ttk.Frame):
         for i, group in enumerate(logic.season_groups(self.seasons[self.scope.get()])):
             parent = tree.insert("", "end", values=(group["club"], *self._pad(group["values"])),
                                  tags=("parent", f"zebra{i % 2}"))
+            self.row_tags[parent] = ("parent", f"zebra{i % 2}")
             self.season_names[parent] = group["season"]
             self._set_open(parent, self.expanded)
             for name, values in group["children"]:
                 tree.insert(parent, "end", text="", values=("    " + name, *self._pad(values)), tags=("child",))
+        self.show_band(None)
 
     def _set_open(self, item, flag):
-        self.season_tree.item(item, open=flag, text=("－ " if flag else "＋ ") + self.season_names[item])
+        marker = "▌" if self.season_names[item] == self.hl_label else ""
+        self.season_tree.item(item, open=flag,
+                              text=marker + ("－ " if flag else "＋ ") + self.season_names[item])
+
+    # --- 차트 -> 표: hover 한 날짜의 시즌 행을 노란 막대(▌)와 배경으로 표시, 선택은 건드리지 않는다 ------------
+    def highlight_season(self, label):
+        if label == self.hl_label:
+            return
+        self.hl_label = label
+        first = None
+        for item in self.season_tree.get_children():
+            hit = label is not None and self.season_names[item] == label
+            base = self.row_tags[item]
+            self.season_tree.item(item, tags=(base[0], "hl") if hit else base)
+            self._set_open(item, bool(self.season_tree.item(item, "open")))
+            if hit and first is None:
+                first = item
+        if first is not None:
+            self.season_tree.see(first)
+
+    # --- 표 -> 차트: 선택/hover 한 시즌의 띠 --------------------------------------------------------
+    def _season_of_item(self, item):
+        parent = self.season_tree.parent(item) or item
+        return self.season_names.get(parent)
+
+    def on_table_select(self):
+        self._update_band()
+
+    def on_table_motion(self, event):
+        item = self.season_tree.identify_row(event.y)
+        self.set_table_hover(self._season_of_item(item) if item else None)
+
+    def set_table_hover(self, label):
+        if label != self.table_hover:
+            self.table_hover = label
+            self._update_band()
+
+    def _update_band(self):
+        label = self.table_hover
+        if label is None:
+            selected = self.season_tree.selection()
+            label = self._season_of_item(selected[0]) if selected else None
+        self.show_band(int(label[:4]) if label else None)
+
+    def show_band(self, season):
+        if self.season_band is None:
+            return
+        shown = self.season_band.get_visible()
+        if season is None:
+            if shown:
+                self.season_band.set_visible(False)
+                self.season_outline.set_visible(False)
+                self.strip_canvas.draw_idle()
+            return
+        start, end = logic.season_range(season)
+        x0, x1 = _num(start), _num(f"{season + 1}-07-01")
+        for patch in (self.season_band, self.season_outline):
+            patch.set_x(x0)
+            patch.set_width(x1 - x0)
+            patch.set_visible(True)
+        self.strip_canvas.draw_idle()
 
     def toggle_all(self):
         self.expanded = not self.expanded
@@ -341,11 +416,14 @@ class CareerView(ttk.Frame):
         colors = (theme.TURF, theme.TURF_2, theme.YOUTH)
         for b in self.blocks:
             x0, x1 = _num(b["start"]), _num(b["end"])
-            strip.broken_barh([(x0, x1 - x0)], (0, 1), facecolors=colors[b["color"]],
-                              edgecolor=theme.PITCH_LINE, linewidth=1.2 * s)
+            strip.broken_barh([(x0, x1 - x0)], (0, 1), facecolors=colors[b["color"]], edgecolor="none",
+                              linewidth=0)                       # 블록은 [시작, 다음 시작) 그대로, 가장자리 여백 없음
             if (b["fee"] or 0) > 0:
                 strip.plot([x0, x0], [0, 0.34], color=theme.CARD_YELLOW, linewidth=2.6 * s,
                            solid_capstyle="butt", zorder=4)
+        if len(self.blocks) > 1:        # 경계마다 1px 흰 선 (틈이 아니라 선)
+            strip.vlines([_num(b["start"]) for b in self.blocks[1:]], 0, 1, colors=theme.PITCH_LINE,
+                         linewidth=0.72, zorder=3.5)
         if series["dates"]:
             dates = [datetime.fromisoformat(d) for d in series["dates"]]
             values = [v / 1e6 for v in series["values"]]
@@ -367,8 +445,7 @@ class CareerView(ttk.Frame):
                        color=theme.MUTED, fontsize=9 * s)
         if self.blocks:
             value.set_xlim(self.xlim_lo, _num(cutoff))
-        value.xaxis.set_major_locator(mdates.YearLocator(2 if self._span_years() > 12 else 1))
-        value.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        self._draw_season_bands(value)
         self._make_hover(strip, value, s)
         self.place_strip_labels()
 
@@ -387,6 +464,12 @@ class CareerView(ttk.Frame):
         self.strip_tip = strip.annotate("", (0, 0), xytext=(0, -8), textcoords="offset points", fontsize=9 * s,
                                         color=theme.INK, bbox=box, zorder=12, visible=False, annotation_clip=False)
         strip.set_zorder(3)                 # 띠 툴팁이 아래 시장가치 축 위에 그려지도록
+        self.season_band = Rectangle((0, 0), 1, 1, transform=value.get_xaxis_transform(), zorder=1.5,
+                                     facecolor=theme.CARD_YELLOW, alpha=0.35, edgecolor="none", visible=False)
+        value.add_patch(self.season_band)
+        self.season_outline = Rectangle((0, 0), 1, 1, transform=strip.get_xaxis_transform(), zorder=8,
+                                        fill=False, edgecolor=theme.CARD_YELLOW, linewidth=2.2 * s, visible=False)
+        strip.add_patch(self.season_outline)
 
     def hide_hover(self):
         changed = False
@@ -396,6 +479,7 @@ class CareerView(ttk.Frame):
                 changed = True
         if changed:
             self.strip_canvas.draw_idle()
+        self.highlight_season(None)
 
     def on_motion(self, event):
         now = time.monotonic()
@@ -435,6 +519,7 @@ class CareerView(ttk.Frame):
         for artist in (self.hover_marker, self.hover_line, tip):
             artist.set_visible(True)
         self.strip_tip.set_visible(False)
+        self.highlight_season(logic.season_label(logic.season_of(point["date"])))
         self.strip_canvas.draw_idle()
 
     def _hover_block(self, x):
@@ -453,7 +538,20 @@ class CareerView(ttk.Frame):
         tip.set_visible(True)
         for artist in (self.hover_marker, self.hover_line, self.hover_tip):
             artist.set_visible(False)
+        day = mdates.num2date(x).date().isoformat()
+        self.highlight_season(logic.season_label(logic.season_of(day)))
         self.strip_canvas.draw_idle()
+
+    def _draw_season_bands(self, value):
+        """값 축 배경에 시즌(7/1~6/30)을 번갈아 아주 옅은 PAPER 띠로 깐다. 라벨은 place_strip_labels 에서 단다."""
+        lo, hi = value.get_xlim()
+        self.band_seasons = logic.season_bands(mdates.num2date(lo).date().isoformat(),
+                                               mdates.num2date(hi).date().isoformat())
+        for index, season in enumerate(self.band_seasons):
+            if index % 2:
+                value.axvspan(_num(f"{season}-07-01"), _num(f"{season + 1}-07-01"), facecolor=theme.PAPER,
+                              edgecolor="none", zorder=0)
+        value.set_xlim(lo, hi)
 
     def _span_years(self) -> float:
         if not self.blocks:
@@ -492,7 +590,35 @@ class CareerView(ttk.Frame):
                 self.label_artists.append(ax.text(
                     (x0 + x1) / 2, 0.5, text, color=theme.INK if b.get("youth") else theme.PITCH_LINE,
                     fontsize=9 * s, fontfamily=family, ha="center", va="center", zorder=6))
+        self._place_season_ticks(measure_family=family, renderer=renderer)
         self.strip_canvas.draw_idle()
+
+    def _place_season_ticks(self, *, measure_family, renderer):
+        """연도 눈금 대신 각 시즌 띠 아래에 '20/21' 을 단다. 폭은 렌더러로 재고 겹치면 건너뛴다."""
+        value = self.value_ax
+        if value is None or not self.band_seasons:
+            return
+        s = self.chart_scale
+        lo, hi = value.get_xlim()
+        centers, labels, spans = [], [], []
+        for season in self.band_seasons:
+            x0, x1 = max(_num(f"{season}-07-01"), lo), min(_num(f"{season + 1}-07-01"), hi)
+            if x1 <= x0:
+                continue
+            text = logic.short_season(season)
+            probe = value.text(0, 0, text, fontsize=8 * s, fontfamily=measure_family)
+            width = probe.get_window_extent(renderer).width
+            probe.remove()
+            px0, px1 = (value.transData.transform((x, 0))[0] for x in (x0, x1))
+            if px1 - px0 < width:            # 보이는 폭이 라벨보다 좁은 시즌(축 끝의 잘린 시즌)은 라벨을 달지 않는다
+                continue
+            cx = (px0 + px1) / 2
+            centers.append((x0 + x1) / 2)
+            labels.append(text)
+            spans.append((cx - width / 2, cx + width / 2))
+        keep = logic.keep_uncolliding(spans, pad=6 * s)
+        value.set_xticks([c for c, k in zip(centers, keep) if k], [t for t, k in zip(labels, keep) if k])
+        value.tick_params(axis="x", length=0, labelsize=8 * s, labelcolor=theme.MUTED, pad=3 * s)
 
     def _draw_seasons(self):
         s = self.chart_scale

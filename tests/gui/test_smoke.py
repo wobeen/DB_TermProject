@@ -323,11 +323,11 @@ def test_value_hover_tooltip_and_block_tooltip(career_path, tk_root):
         c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2025-04-20"), 12.0))     # 2025-05-01 점에 가장 가깝다
         text = c.hover_tip.get_text()
         assert c.hover_tip.get_visible() and c.hover_marker.get_visible() and c.hover_line.get_visible()
-        assert text.split("\n") == ["2025-05-01", "€12.0M", "Alpha FC"]
+        assert text.split("\n") == ["2025-05-01 (2024/25)", "€12.0M", "Alpha FC"]
         assert tuple(c.hover_marker.get_xdata()) == (num("2025-05-01"),)
         c.last_motion = 0
         c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2023-02-01"), 3.0))      # 2023-01-01 점
-        assert c.hover_tip.get_text().split("\n")[:2] == ["2023-01-01", "€3.0M"]
+        assert c.hover_tip.get_text().split("\n")[:2] == ["2023-01-01 (2022/23)", "€3.0M"]
         c.last_motion = 0
         c.on_motion(_motion(c.strip_canvas, c.strip_ax, num("2023-06-01"), 0.5))      # 띠 블록 위
         assert c.strip_tip.get_visible() and not c.hover_tip.get_visible()
@@ -340,5 +340,74 @@ def test_value_hover_tooltip_and_block_tooltip(career_path, tk_root):
         assert not any(a.get_visible() for a in (c.hover_marker, c.hover_line, c.hover_tip, c.strip_tip))
         c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2025-04-20"), 12.0))     # 30 fps 제한: 바로 다음 이벤트는 무시
         assert not c.hover_tip.get_visible()
+    finally:
+        _dispose(app)
+
+
+def test_season_link_between_chart_and_table(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        c = app.career
+        app.open_career(301)
+        _wait(root, lambda: c.card is not None)
+        root.update()
+        num = lambda day: __import__("matplotlib.dates", fromlist=["date2num"]).date2num(
+            __import__("datetime").datetime.fromisoformat(day))
+        tree = c.season_tree
+        parents = tree.get_children()
+        assert [c.season_names[p] for p in parents] == ["2023/24", "2024/25", "2025/26"]
+        # 차트 -> 표: 2025-05-01 점(2024/25 시즌)에 hover 하면 그 시즌 행만 표시되고 선택은 그대로
+        assert not tree.selection()
+        c.last_motion = 0
+        c.on_motion(_motion(c.strip_canvas, c.value_ax, num("2025-04-20"), 12.0))
+        assert "hl" in tree.item(parents[1], "tags") and tree.item(parents[1], "text").startswith("▌")
+        assert "hl" not in tree.item(parents[0], "tags") and "hl" not in tree.item(parents[2], "tags")
+        assert not tree.selection()                                    # 선택은 건드리지 않는다
+        c.last_motion = 0
+        c.on_motion(_motion(c.strip_canvas, c.strip_ax, num("2023-10-01"), 0.5))      # 띠 위: 날짜의 시즌 2023/24
+        assert "hl" in tree.item(parents[0], "tags") and "hl" not in tree.item(parents[1], "tags")
+        c.last_motion = 0
+        c.on_motion(type("Leave", (), {"inaxes": None, "xdata": None})())            # 나가면 표시 해제
+        assert not any("hl" in tree.item(p, "tags") for p in parents)
+        assert not tree.item(parents[0], "text").startswith("▌")
+        # 표 -> 차트: 행을 선택하면 그 시즌 띠(2024/25)와 띠 윤곽이 생기고, 선택을 해제하면 사라진다
+        assert not c.season_band.get_visible()
+        tree.selection_set(parents[1])
+        root.update()
+        assert c.season_band.get_visible() and c.season_outline.get_visible()
+        assert c.season_band.get_x() == num("2024-07-01") and c.season_band.get_width() == num("2025-07-01") - num("2024-07-01")
+        tree.selection_remove(parents[1])
+        root.update()
+        assert not c.season_band.get_visible() and not c.season_outline.get_visible()
+        c.set_table_hover("2023/24")                                     # 행 위에 마우스만 올려도 띠
+        assert c.season_band.get_visible() and c.season_band.get_x() == num("2023-07-01")
+        c.set_table_hover(None)
+        assert not c.season_band.get_visible()
+    finally:
+        _dispose(app)
+
+
+def test_strip_is_drawn_without_gaps_and_axis_has_season_labels(career_path, tk_root):
+    root = tk_root
+    _show(root)
+    app = ScoutingApp(root, career_path)
+    try:
+        c = app.career
+        app.open_career(301)
+        _wait(root, lambda: c.card is not None)
+        root.update()
+        bars = [coll for coll in c.strip_ax.collections if coll.get_facecolor().shape[0] == 1
+                and coll.get_paths() and len(coll.get_paths()[0].vertices) >= 4]
+        spans = sorted((p.get_paths()[0].vertices[:, 0].min(), p.get_paths()[0].vertices[:, 0].max())
+                       for p in bars if p.get_linewidth().size and p.get_linewidth()[0] == 0)
+        assert spans, "블록이 그려지지 않았다"
+        for (_a0, a1), (b0, _b1) in zip(spans, spans[1:]):
+            assert a1 == b0                                           # 그려진 블록도 서로 맞닿는다
+        # 가장자리 여백(흰 테두리)이 없다
+        assert all(p.get_linewidth()[0] == 0 for p in bars if p.get_linewidth().size)
+        labels = [t.get_text() for t in c.value_ax.get_xticklabels()]
+        assert labels and all("/" in text and len(text) == 5 for text in labels)          # '24/25' 꼴 시즌 라벨
     finally:
         _dispose(app)

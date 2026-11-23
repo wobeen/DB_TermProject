@@ -96,8 +96,9 @@ def test_tenures_cover_first_transfer_to_cutoff_without_gaps_or_overlaps():
     assert all(b["start"] < b["end"] for b in blocks)
     assert blocks[2]["fee"] == 5_000_000.0
     # 처음 등장한 구단 순서로 0,1,0 ... 복귀한 A 는 첫 재직 때 색을 유지
-    assert [b["color"] for b in blocks] == [0, 1, 0, 0]
-    assert blocks[3]["color"] == blocks[0]["color"]
+    # 위치 기준으로 번갈아: A=0, B=1, C=0. 복귀한 A 는 첫 색(0)이 이웃 C 와 같아져서 이번엔 반대색(1)
+    assert [b["color"] for b in blocks] == [0, 1, 0, 1]
+    assert all(a["color"] != b["color"] for a, b in zip(blocks, blocks[1:]))     # 이웃은 항상 다른 색
 
 
 def test_tenures_edge_cases():
@@ -231,9 +232,9 @@ def test_nearest_index_snaps_to_closest_point():
 
 def test_tooltip_and_tenure_text():
     point = {"date": "2024-03-15", "market_value_eur": 60_000_000, "club_name": "Liverpool FC"}
-    assert logic.tooltip_lines(point) == ["2024-03-15", "€60.0M", "Liverpool FC"]
+    assert logic.tooltip_lines(point) == ["2024-03-15 (2023/24)", "€60.0M", "Liverpool FC"]
     assert logic.tooltip_lines({"date": "2020-01-01", "market_value_eur": 750_000, "club_name": None}) == [
-        "2020-01-01", "€750K", "-"]
+        "2020-01-01 (2019/20)", "€750K", "-"]
     assert logic.duration_text("2025-07-23", "2025-07-30") == "1개월 미만"
     assert logic.duration_text("2025-01-10", "2025-12-10") == "11개월"
     assert logic.duration_text("2015-08-28", "2025-08-06") == "10년"
@@ -294,3 +295,43 @@ def test_tenure_text_marks_only_possibly_truncated_appearance_stints():
     assert logic.stint_text(mixed) == "2010-01 ~ 2012-01, 2012-09 ~ 2013-03 (2012/13 이전 미수록)"
     many = mixed + [("2016-01-01", "2017-01-01", "appearance")]
     assert logic.stint_text(many) == "2012-09 ~ 2013-03 (2012/13 이전 미수록), 2016-01 ~ 2017-01 외 1회"
+
+
+def test_returning_club_keeps_colour_when_neighbours_differ():
+    blocks = logic.tenures([_t(1, "2005-01-01", 1, "A"), _t(2, "2008-01-01", 2, "B"), _t(3, "2012-01-01", 1, "A"),
+                            _t(4, "2015-01-01", 3, "C"), _t(5, "2018-01-01", 1, "A")], "2026-07-06")
+    assert [b["club"] for b in blocks] == ["A", "B", "A", "C", "A"]
+    assert [b["color"] for b in blocks] == [0, 1, 0, 1, 0]          # A 는 이웃(B, C)과 다르니 계속 같은 색
+    assert all(a["color"] != b["color"] for a, b in zip(blocks, blocks[1:]))
+    same = logic.tenures([_t(1, "2005-01-01", 1, "A"), _t(2, "2008-01-01", 1, "A")], "2026-07-06")
+    assert all(a["color"] != b["color"] for a, b in zip(same, same[1:]))      # 같은 구단 연속도 서로 구분
+
+
+def test_strip_blocks_are_contiguous_across_the_whole_strip():
+    transfers = [_t(1, "2005-01-01", 1, "Hupyeong MS"), _t(2, "2007-01-01", 2, "Yukminkwan MS"),
+                 _t(3, "2010-07-01", 3, "Hamburger SV II"), _t(4, "2013-07-01", 4, "Hamburger SV"),
+                 _t(5, "2015-08-01", 5, "Tottenham"), _t(6, "2017-08-01", 4, "Hamburger SV"),
+                 _t(7, "2017-08-01", 6, "Same-day winner"), _t(8, "2030-01-01", 9, "Future")]
+    cutoff = "2026-07-06"
+    for blocks in (logic.tenures(transfers, cutoff),
+                   logic.collapse_youth(logic.tenures(transfers, cutoff), "2010-12-01", "2012-08-01")):
+        assert blocks[0]["start"] == "2005-01-01" and blocks[-1]["end"] == cutoff
+        for left, right in zip(blocks, blocks[1:]):
+            assert left["end"] == right["start"]                      # 빈틈도 겹침도 없다
+        assert all(b["start"] < b["end"] for b in blocks)
+
+
+def test_season_dates_ranges_and_band_labels():
+    assert logic.season_of("2021-03-18") == 2020 and logic.season_label(logic.season_of("2021-03-18")) == "2020/21"
+    assert logic.season_of("2020-07-01") == 2020 and logic.season_of("2020-06-30") == 2019
+    assert logic.season_of("2021-12-31") == 2021 and logic.season_of("2021-01-01") == 2020
+    assert logic.season_range(2020) == ("2020-07-01", "2021-06-30")
+    assert logic.short_season(2020) == "20/21" and logic.short_season(1999) == "99/00"
+    assert logic.season_bands("2019-03-01", "2021-08-01") == [2018, 2019, 2020, 2021]
+    assert logic.season_bands("2020-07-01", "2021-06-30") == [2020]
+    # 라벨 충돌: 앞에 남긴 라벨과 여백 안에서 겹치면 건너뛰고, 건너뛴 라벨은 다음 라벨의 기준이 되지 않는다
+    spans = [(0, 30), (25, 55), (40, 70), (60, 90), (95, 125)]
+    assert logic.keep_uncolliding(spans, pad=4) == [True, False, True, False, True]
+    assert logic.keep_uncolliding([(0, 10), (14, 24)], pad=4) == [True, True]
+    assert logic.keep_uncolliding([(0, 10), (13, 24)], pad=4) == [True, False]
+    assert logic.keep_uncolliding([], pad=4) == []
