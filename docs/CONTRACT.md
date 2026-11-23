@@ -209,6 +209,25 @@ evaluate_run(conn, run_id, *, outcome_snapshot_id, k_values=(20, 50)) -> list[di
 data_status(conn) -> dict
 create_definition / update_definition / delete_definition   # (conn, actor: User, ...) admin만. 수정 시 pipeline.derive.build_labels 호출
 rebuild_snapshot(conn, snapshot_id, *, actor: User) -> dict  # admin만. pipeline.derive.build_snapshot 위임
+# --- GUI(커리어 탐색기)용 읽기 전용 함수 (services/players.py). 쓰기 없음, 값은 전부 ? 또는 json_each(?) 바인딩 ---
+data_cutoff(conn) -> dict                                     # game/appearance/valuation 최대 날짜, 마지막 시즌
+coverage_summary(conn) -> dict                                # 수록 리그·대회 종류 (안내 문구용)
+nationalities(conn) -> list[str]
+search_players_ext(conn, *, name=None, pos_group=None, nationality=None, club_name=None, min_age=None, max_age=None,
+                   limit=20, offset=0, sub_positions=None, club_ids=None) -> list[dict]
+count_players_ext(conn, *, ...같은 필터...) -> int
+# club_name: 이름 부분 일치 구단, club_ids: 정확한 구단 id(우선). 둘 다 이적(from/to) 또는 출전 기록으로 판정.
+# sub_positions: 포메이션 자리 코드(GK..ST)를 GUI logic 이 player.sub_position 으로 바꾼 목록(등록 주 포지션 기준).
+suggest_players(conn, text, limit=8) -> list[dict]           # 이름 연관검색어
+suggest_clubs(conn, text, limit=8) -> list[dict]             # 거쳐 간 선수 수 순
+domestic_leagues(conn) -> list[dict]                         # 국내 리그 31개, is_covered 포함
+league_clubs(conn, competition_id) -> list[dict]             # 그 리그 경기에 나온 구단
+club_ids_by_name(conn, text) -> list[int]
+club_tenures(conn, player_ids, club_ids) -> dict[int, list[(start, end|None, source)]]   # source: 'transfer' | 'appearance'
+transfer_history(conn, player_id, *, cutoff=None) -> list[dict]   # cutoff 이후 날짜는 upcoming 표시
+career_seasons(conn, player_id, *, league_only=False) -> list[dict]   # 시즌 x 구단 x 대회
+first_appearance_date(conn, player_id) -> str | None
+latest_snapshot_season(conn, snapshot_id, player_id) -> int | None
 ```
 비밀번호 해시: `hashlib.pbkdf2_hmac('sha256', ..., iterations=200_000)`, 형식은 `pbkdf2_sha256$<iter>$<salt_hex>$<hash_hex>`.
 
@@ -282,4 +301,4 @@ python bench/run_all.py                    # 실험 재현
 | App | `pytest tests/app` 통과. 다음을 테스트로 증명한다: 타인 노트·워치리스트 수정/삭제 거부, 추천 실행 중 예외 시 run·item 롤백, bt2018 추천이 2018-07-01 이후 데이터에 의존하지 않음(이후 데이터 변조 전후 결과 동일), 잘못된 CLI 입력에서 종료하지 않음. 실데이터로 4개 method 실행 로그 |
 | Bench | `run_all.py` 전체 실행 로그. §8 산출물 전부. 원천 경로와 P 결과 일치 검증 로그 |
 
-최종 검증: fable5.2가 [REQUIREMENTS.md](./REQUIREMENTS.md) §6 체크리스트로 판정한다.
+최종 검증: 원래 계획은 fable5.2가 [REQUIREMENTS.md](./REQUIREMENTS.md) §6 체크리스트로 판정하는 것이었으나, 사용자 결정으로 생략했다(교차 리뷰와 전체 테스트로 대신함).
