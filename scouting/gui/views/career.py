@@ -42,7 +42,7 @@ class CareerView(ttk.Frame):
         self.hover_marker = self.hover_line = None
         self.hover_tip = self.strip_tip = None
         self.last_motion = 0.0
-        self.season_band = self.season_outline = None
+        self.season_band = None
         self.band_seasons: list[int] = []
         self.band_ticks: list = []
         self.hl_label = None
@@ -271,8 +271,8 @@ class CareerView(ttk.Frame):
         for row, src in shown:
             tags = ["upcoming"] if src["upcoming"] else []
             self.transfer_tree.insert("", "end", values=row, tags=tags)
-        self.transfer_tree.configure(height=max(LEDGER_COLLAPSED, min(len(shown), 12)) if self.ledger_open
-                                     else LEDGER_COLLAPSED)
+        # 펼쳐도 높이는 그대로 두고 스크롤로 보여 준다(위쪽 표와 그래프가 줄어들지 않게).
+        self.transfer_tree.configure(height=LEDGER_COLLAPSED)
         self.ledger_btn.configure(text="접기" if self.ledger_open else f"전체 보기 ({len(rows)})")
         self.ledger_btn.state(["!disabled"] if len(rows) > LEDGER_COLLAPSED else ["disabled"])
 
@@ -365,15 +365,13 @@ class CareerView(ttk.Frame):
         if season is None:
             if shown:
                 self.season_band.set_visible(False)
-                self.season_outline.set_visible(False)
                 self.strip_canvas.draw_idle()
             return
         start, end = logic.season_range(season)
         x0, x1 = _num(start), _num(f"{season + 1}-07-01")
-        for patch in (self.season_band, self.season_outline):
-            patch.set_x(x0)
-            patch.set_width(x1 - x0)
-            patch.set_visible(True)
+        self.season_band.set_x(x0)
+        self.season_band.set_width(x1 - x0)
+        self.season_band.set_visible(True)
         self.strip_canvas.draw_idle()
 
     def toggle_all(self):
@@ -476,9 +474,6 @@ class CareerView(ttk.Frame):
         self.season_band = Rectangle((0, 0), 1, 1, transform=value.get_xaxis_transform(), zorder=1.5,
                                      facecolor=theme.CARD_YELLOW, alpha=0.35, edgecolor="none", visible=False)
         value.add_patch(self.season_band)
-        self.season_outline = Rectangle((0, 0), 1, 1, transform=strip.get_xaxis_transform(), zorder=8,
-                                        fill=False, edgecolor=theme.CARD_YELLOW, linewidth=2.2 * s, visible=False)
-        strip.add_patch(self.season_outline)
 
     def hide_hover(self):
         self.key_index = None

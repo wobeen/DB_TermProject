@@ -382,15 +382,15 @@ def test_season_link_between_chart_and_table(career_path, tk_root):
         c.on_motion(type("Leave", (), {"inaxes": None, "xdata": None})())            # 나가면 표시 해제
         assert not any("hl" in tree.item(p, "tags") for p in parents)
         assert not tree.item(parents[0], "text").startswith("▌")
-        # 표 -> 차트: 행을 선택하면 그 시즌 띠(2024/25)와 띠 윤곽이 생기고, 선택을 해제하면 사라진다
+        # 표 -> 차트: 행을 선택하면 시장가치 축에 그 시즌 띠(2024/25)가 생기고, 선택을 해제하면 사라진다
         assert not c.season_band.get_visible()
         tree.selection_set(parents[1])
         root.update()
-        assert c.season_band.get_visible() and c.season_outline.get_visible()
+        assert c.season_band.get_visible()
         assert c.season_band.get_x() == num("2024-07-01") and c.season_band.get_width() == num("2025-07-01") - num("2024-07-01")
         tree.selection_remove(parents[1])
         root.update()
-        assert not c.season_band.get_visible() and not c.season_outline.get_visible()
+        assert not c.season_band.get_visible()
         c.set_table_hover("2023/24")                                     # 행 위에 마우스만 올려도 띠
         assert c.season_band.get_visible() and c.season_band.get_x() == num("2023-07-01")
         c.set_table_hover(None)
