@@ -11,15 +11,17 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 HERE = Path(__file__).resolve().parent
-BODY_PT, CODE_PT, TAB_PT = 11, 7.5, 9   # tuned so the document is exactly 6 A4 pages
+BODY_PT, CODE_PT, TAB_PT = 11, 7, 8.5   # tuned so the document is exactly 6 A4 pages
 MARGIN_CM = 2.0
 FONT = "Times New Roman"; CODE_FONT = "Consolas"
 
 doc = Document()
 sec = doc.sections[0]
 sec.page_width, sec.page_height = Cm(21.0), Cm(29.7)
-for a in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+for a in ("left_margin", "right_margin"):
     setattr(sec, a, Cm(MARGIN_CM))
+for a in ("top_margin", "bottom_margin"):
+    setattr(sec, a, Cm(1.8))
 
 def setfont(run, name=FONT, size=None, bold=None, italic=None):
     run.font.name = name
@@ -29,7 +31,7 @@ def setfont(run, name=FONT, size=None, bold=None, italic=None):
     if italic is not None: run.italic = italic
 
 st = doc.styles["Normal"]; st.font.name = FONT; st.font.size = Pt(BODY_PT)
-st.paragraph_format.space_after = Pt(3); st.paragraph_format.space_before = Pt(0)
+st.paragraph_format.space_after = Pt(2); st.paragraph_format.space_before = Pt(0)
 st.paragraph_format.line_spacing = 1.0
 
 TOK = re.compile(r"(\*\*.+?\*\*|\*.+?\*|`.+?`)")
@@ -54,7 +56,7 @@ while i < len(lines):
     if ln.startswith("```"):
         j = i + 1; buf = []
         while not lines[j].startswith("```"): buf.append(lines[j]); j += 1
-        p = doc.add_paragraph(); p.paragraph_format.space_after = Pt(3)
+        p = doc.add_paragraph(); p.paragraph_format.space_after = Pt(2)
         p.paragraph_format.line_spacing = 1.0
         shade(p, "F2F2F2")
         for k, b in enumerate(buf):
