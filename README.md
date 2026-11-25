@@ -6,6 +6,8 @@ DB 텀프로젝트. 선수들의 시즌별 성장 기록을 SQLite에 쌓는다.
 - 언어: Python ≥ 3.11, 런타임은 표준 라이브러리만 사용
 - 데이터: [Transfermarkt datasets](https://github.com/dcaribou/transfermarkt-datasets) (CC0), 2026-07-06 스냅샷
 
+남은 일과 제출 전 확인 사항은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md)에 있다.
+
 ## 설치와 DB 구축
 
 ```bash
